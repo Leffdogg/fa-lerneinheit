@@ -177,6 +177,44 @@ const pruefeZahlFall = (eingabe, fall) => {
 // Buchungsfall bewerten: Ist keine Buchung nötig, ist leer lassen richtig (pruefeBuchung kann das selbst)
 const bewerteBuchung = (eingabe, loesung) => pruefeBuchung(eingabe || [], loesung || []);
 
+// Ankreuzfragen wie an MooPad/E-Assessment. Kprim: zu jeder Aussage richtig/falsch, alle richtig = voll,
+// eine falsch = halb (MooPad: 3 P bei 4/4, 1,5 bei 3/4), sonst 0. Auswahl: eine (A+) oder mehrere
+// richtige Antworten, nur genau die richtigen angekreuzt zählt.
+const BUCHSTABEN = 'ABCDEFGH';
+// Eingabe eines Kprim-Falls: ['r','f','','r']; ältere Stände waren Freitext („1. richtig …“)
+function kprimWahl(eingabe, n) {
+  const zelle = (eingabe || [[]])[0] || [];
+  if (zelle.length === 1 && String(zelle[0]).length > 1) {
+    const t = Array(n).fill('');
+    for (const m of String(zelle[0]).matchAll(/(\d+)\s*[.)]?\s*(richtig|falsch|r|f)\b/gi)) {
+      const i = Number(m[1]) - 1;
+      if (i >= 0 && i < n) t[i] = m[2][0].toLowerCase();
+    }
+    return t;
+  }
+  return Array.from({ length: n }, (_, i) => zelle[i] || '');
+}
+function bewerteKprim(eingabe, aussagen) {
+  const t = kprimWahl(eingabe, aussagen.length);
+  const treffer = aussagen.filter((a, i) => t[i] === (a.richtig ? 'r' : 'f')).length;
+  return treffer === aussagen.length ? 1 : treffer === aussagen.length - 1 ? 0.5 : 0;
+}
+// Eingabe eines Auswahl-Falls: ['', 'B', '', ''] oder älterer Freitext („b“, „B und D“) → gewählte Buchstaben
+function auswahlWahl(eingabe) {
+  const zelle = ((eingabe || [[]])[0] || []).filter((x) => String(x).trim());
+  const text = zelle.length === 1 ? String(zelle[0]) : '';
+  if (text.length > 1 || (text && text !== text.toUpperCase())) {
+    return [...new Set([...text.matchAll(/\b([a-h])\b/gi)].map((m) => m[1].toUpperCase()))];
+  }
+  return zelle.map((x) => String(x).toUpperCase());
+}
+function bewerteAuswahl(eingabe, richtig) {
+  const t = new Set(auswahlWahl(eingabe));
+  return t.size === richtig.length && richtig.every((b) => t.has(b)) ? 1 : 0;
+}
+const istKreuz = (fall) => fall.art === 'kprim' || fall.art === 'auswahl';
+const bewerteKreuz = (eingabe, fall) => (fall.art === 'kprim' ? bewerteKprim(eingabe, fall.kprim) : bewerteAuswahl(eingabe, fall.richtig));
+
 const ERGEBNIS_TEXT = (w) => (w >= 1 ? 'richtig' : w > 0 ? 'teilweise' : 'falsch');
 const istLeer = (eingabe) => !(eingabe || []).some((r) => r.some((c) => String(c).trim()));
 
@@ -194,6 +232,7 @@ function trefferQuote(einheit, z) {
       else if (fall.art === 'buchung') w = bewerteBuchung(eingabe, fall.loesung);
       else if (istLeer(eingabe)) w = 0;
       else if (fall.art === 'zahl') w = pruefeZahlFall(eingabe, fall);
+      else if (istKreuz(fall)) w = bewerteKreuz(eingabe, fall);
       if (w === null) continue;
       summe += w; anzahl += 1;
     }
@@ -247,6 +286,28 @@ function pruefeEinheit(obj) {
           if (!probe && (!Array.isArray(fall.hilfe) || fall.hilfe.length < 2)) return f(`${wf}: „hilfe“ braucht zwei Tipps (Situation, Spick).`);
           if (!probe && (!Array.isArray(fall.weg) || fall.weg.length < 2)) return f(`${wf}: „weg“ braucht mindestens zwei Schritte.`);
           neu.faelle.push({ ...fall, id: String(fall.id), aufgabenart: String(aufgabenart), art: 'zahl' });
+          continue;
+        }
+        // Kprim: Liste von { aussage, richtig: true/false, warum }
+        if (fall.kprim != null) {
+          if (!Array.isArray(fall.kprim) || fall.kprim.length < 2 || fall.kprim.some((a) => !a || !a.aussage || typeof a.richtig !== 'boolean')) {
+            return f(`${wf}: „kprim“ braucht eine Liste von Aussagen mit „aussage“ und „richtig: true/false“.`);
+          }
+          neu.faelle.push({ ...fall, id: String(fall.id), art: 'kprim' });
+          continue;
+        }
+        // Auswahl (A+/MC): optionen + richtig (ein Buchstabe = genau eine richtig, Liste = mehrere ankreuzen)
+        if (fall.optionen != null) {
+          if (!Array.isArray(fall.optionen) || fall.optionen.length < 2 || fall.optionen.length > BUCHSTABEN.length) {
+            return f(`${wf}: „optionen“ braucht 2 bis ${BUCHSTABEN.length} Antworten.`);
+          }
+          const mehrfach = Array.isArray(fall.richtig);
+          const richtig = (mehrfach ? fall.richtig : [fall.richtig]).map((b) => String(b == null ? '' : b).trim().toUpperCase());
+          const erlaubt = BUCHSTABEN.slice(0, fall.optionen.length);
+          if (!richtig.length || richtig.some((b) => b.length !== 1 || !erlaubt.includes(b))) {
+            return f(`${wf}: „richtig“ muss ein Buchstabe ${erlaubt[0]}–${erlaubt[erlaubt.length - 1]} sein (oder eine Liste davon).`);
+          }
+          neu.faelle.push({ ...fall, id: String(fall.id), optionen: fall.optionen.map(String), richtig, mehrfach, art: 'auswahl' });
           continue;
         }
         // Rechen- oder Textfrage statt Buchung: Textfeld, Musterantwort beim Aufdecken
@@ -401,6 +462,31 @@ function fortschrittZeile(einheit, z, datumISO) {
   const q = trefferQuote(einheit, z);
   const quote = q ? ` · ${q.prozent} % richtig (${q.richtig}/${q.anzahl})` : '';
   return `| ${d}.${m}. | ${einheit.thema} | Lerneinheit | ${ist} min (Soll ${soll})${quote} | ${z.einschaetzung} |`;
+}
+
+// ── Aufgaben-Uhr ── für Karten ohne Lerneinheit (Videos, Lesen, Aufträge); läuft in der Statusleiste
+// u = { text, modul, sek, seit (ms, null = pausiert), puls (ms) }
+function uhrSek(u, jetzt) {
+  if (!u) return 0;
+  return u.sek + (u.seit != null ? Math.min(MAX_LAUF_S, Math.max(0, Math.round((jetzt - u.seit) / 1000))) : 0);
+}
+// Pausieren; ohne Lebenszeichen (Schlaf, Obsidian beendet) nur bis zum letzten Puls zählen
+function uhrPause(u, jetzt) {
+  if (!u || u.seit == null) return u;
+  return { ...u, sek: uhrSek(u, jetzt), seit: null };
+}
+// Fortschrittszeile „Zeit“ (ohne Einschätzung, zählt nur als Lernzeit); gleicher Tag und gleiche Aufgabe werden addiert
+function setzeZeit(text, thema, datumISO, min) {
+  const [, m, d] = datumISO.split('-');
+  const tag = `${d}.${m}.`;
+  let sauber = String(thema).replace(/\|/g, '/').trim();
+  const zellen = text.split(/\r?\n/).map((z) => z.split('|').map((x) => x.trim()));
+  const alt = zellen.find((c) => c[1] === tag && c[2] === sauber && c[3] === 'Zeit');
+  // Gibt es am selben Tag eine andere Zeile mit gleichem Thema (z. B. eine Lerneinheit), nie überschreiben
+  if (!alt && zellen.some((c) => c[1] === tag && c[2] === sauber)) sauber += ' (Zeit)';
+  const alt2 = alt || zellen.find((c) => c[1] === tag && c[2] === sauber && c[3] === 'Zeit');
+  const vorher = alt2 ? Number((/(\d+)\s*min/.exec(alt2[4] || '') || [0, 0])[1]) : 0;
+  return setzeFortschritt(text, `| ${tag} | ${sauber} | Zeit | ${vorher + min} min |  |`);
 }
 
 // Zeile mit gleichem Datum und Thema ersetzen, sonst ans Ende der Tabelle mit „Datum“-Kopf hängen
@@ -1037,9 +1123,11 @@ function hakeAb(boardText, zeile, heuteISO = null, spalte = null) {
 }
 
 // Etappe von heute: heute erledigte Lerneinheiten, dann fällige offene in Board-Reihenfolge; die erste offene ist „jetzt“
-function etappeHeute(board, heuteISO) {
+// heuteFertig(link): true, wenn das Plugin die Einheit heute abgeschlossen hat. Kanban speichert kein ✅-Datum,
+// darum fiel eine heute erledigte, aber gestern fällige Einheit sonst aus der Etappe (14.11. „Bewertung nach OR“).
+function etappeHeute(board, heuteISO, heuteFertig = () => false) {
   const lernt = (k) => k.art === 'lerneinheit' || k.art === 'wiederholen';
-  const fertig = (board.erledigt || []).filter((k) => lernt(k) && (k.erledigtAm || k.datum) === heuteISO)
+  const fertig = (board.erledigt || []).filter((k) => lernt(k) && ((k.erledigtAm || k.datum) === heuteISO || heuteFertig(k.link)))
     .map((k) => ({ text: k.text, link: k.link, modul: null, status: 'fertig', art: k.art }));
   const offen = [];
   for (const key of MODUL_KEYS) {
@@ -1245,7 +1333,11 @@ function cfgFuer(modul = 'fa') {
     quizOrdner: 'Module/Financial Accounting', quizDeckel: QUIZ_DECKEL_RECHNEN };
 }
 const PULS_MS = 30_000;
-const PAUSE_MS = 60_000;
+// Ist Obsidian verdeckt oder minimiert, tickt Chromium nur noch etwa einmal pro Minute. Erst eine Lücke
+// über 5 min heisst wirklich Ruhezustand/Schlaf – sonst ginge Zeit mit Taschenrechner oder Papier verloren.
+const PAUSE_MS = 5 * 60_000;
+// Lesezeit vor dem ersten Klick: Der Timer startet rückwirkend ab Öffnen der Einheit, höchstens so weit zurück
+const VORLAUF_MS = 5 * 60_000;
 
 function h(tag, cls, text) {
   const e = document.createElement(tag);
@@ -1285,6 +1377,15 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
     this.containerEl.appendChild(this.root);
     this.baue();
     this.registerInterval(window.setInterval(() => this.tick(), 1000));
+    // Erste Berührung (Klick, Taste, Scrollen) startet den Timer ab dem Öffnen – die Lesezeit der Theorie zählt mit.
+    // Nicht in Hover-Vorschauen, dort wird nicht gelernt.
+    this.geoeffnet = Date.now();
+    const erste = () => {
+      if (this.geoeffnet == null || this.pruefung || this.containerEl.closest('.hover-popover')) return;
+      this.autoStart(Math.max(this.geoeffnet, Date.now() - VORLAUF_MS));
+      this.geoeffnet = null;
+    };
+    for (const art of ['pointerdown', 'keydown', 'wheel']) this.registerDomEvent(this.root, art, erste, { capture: true });
   }
 
   onunload() {
@@ -1338,10 +1439,13 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
   }
 
   // Wer tippt oder weitergeht, arbeitet: Timer starten, falls er noch nicht läuft
-  autoStart() {
+  autoStart(ab) {
     const z = this.z;
+    this.geoeffnet = null;   // nach dem ersten Start nie mehr rückwirkend
     if (z.laeuft || z.einschaetzung) return;
-    this.plugin.daten.einheiten[this.e.id] = starte(z, z.schritt || 0, Date.now());
+    const neu = starte(z, z.schritt || 0, ab || Date.now());
+    neu.laeuft.puls = Date.now();
+    this.plugin.daten.einheiten[this.e.id] = neu;
     this.plugin.speichere();
     const knopf = this.root.querySelector('.fle-timer');
     if (knopf) { knopf.classList.add('is-laeuft'); obsidian.setIcon(knopf.querySelector('button'), 'pause'); }
@@ -1497,6 +1601,7 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
       const z = this.z;
       if (fall.art === 'antwort') { this.baueAntwort(box, fall, key); continue; }
       if (fall.art === 'zahl') { this.baueZahl(box, fall, key); continue; }
+      if (istKreuz(fall)) { this.baueKreuz(box, fall, key); continue; }
       const zeilen = z.eingaben[key] || Array.from({ length: fall.zeilen }, () => ['', '', '']);
       const tab = box.appendChild(h('table', 'fle-tabelle'));
       const tr0 = tab.appendChild(h('thead')).appendChild(h('tr'));
@@ -1579,6 +1684,72 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
         b.onclick = () => this.bewerteSelbst(key, w);
       }
     }
+  }
+
+  // Ankreuzfrage: Kprim (richtig/falsch je Aussage) oder Auswahl (A+ = eine, MC = mehrere); bewertet sich selbst
+  baueKreuz(box, fall, key) {
+    const kprim = fall.art === 'kprim';
+    const offen = this.z.aufgedeckt.includes(key);
+    const n = kprim ? fall.kprim.length : fall.optionen.length;
+    const wahl = kprim ? kprimWahl(this.z.eingaben[key], n)
+      : BUCHSTABEN.slice(0, n).split('').map((b) => (auswahlWahl(this.z.eingaben[key]).includes(b) ? b : ''));
+    const merke = () => { this.autoStart(); this.merkeStart(key); this.z.eingaben[key] = [[...wahl]]; this.plugin.speichere(); };
+    const liste = box.appendChild(h('div', 'fle-kreuz' + (kprim ? ' is-kprim' : '') + (offen ? ' is-zu' : '')));
+    if (!kprim && !offen) liste.appendChild(h('div', 'fle-leise', fall.mehrfach ? 'Mehrere Antworten können richtig sein.' : 'Genau eine Antwort ist richtig.'));
+    const knoepfe = [];
+    for (let i = 0; i < n; i++) {
+      const zeile = liste.appendChild(h('div', 'fle-kreuz-zeile'));
+      const buchstabe = BUCHSTABEN[i];
+      zeile.appendChild(h('span', 'fle-kreuz-nr', kprim ? `${i + 1}.` : `${buchstabe})`));
+      const textEl = zeile.appendChild(h('div', 'fle-md fle-kreuz-text'));
+      this.md(textEl, kprim ? String(fall.kprim[i].aussage) : fall.optionen[i]);
+      const reihe = zeile.appendChild(h('div', 'fle-kreuz-wahl'));
+      const optionen = kprim ? [['r', 'richtig'], ['f', 'falsch']] : [[buchstabe, fall.mehrfach ? '☐' : '○']];
+      for (const [wert, label] of optionen) {
+        const b = reihe.appendChild(h('button', 'fle-btn fle-kreuz-btn', label));
+        b.setAttribute('aria-label', kprim ? `Aussage ${i + 1}: ${label}` : `Antwort ${buchstabe}`);
+        knoepfe.push({ b, i, wert });
+        if (offen || (this.pruefung && this.z.abgegeben)) { b.disabled = true; continue; }
+        b.onclick = () => {
+          if (kprim) wahl[i] = wahl[i] === wert ? '' : wert;
+          else if (fall.mehrfach) wahl[i] = wahl[i] ? '' : wert;
+          else for (let k = 0; k < n; k++) wahl[k] = k === i && !wahl[i] ? wert : '';
+          merke(); male();
+        };
+      }
+      if (offen) {
+        const soll = kprim ? (fall.kprim[i].richtig ? 'r' : 'f') : fall.richtig.includes(buchstabe) ? buchstabe : '';
+        const gewaehlt = wahl[i];
+        const stimmt = kprim ? gewaehlt === soll : (gewaehlt === buchstabe) === !!soll;
+        zeile.classList.add(stimmt ? 'is-richtig' : 'is-falsch');
+        if (!kprim && soll) zeile.classList.add('is-loesung');
+        const hinweis = kprim ? `${soll === 'r' ? 'richtig' : 'falsch'}${fall.kprim[i].warum ? ' – ' + fall.kprim[i].warum : ''}` : '';
+        if (hinweis) this.md(zeile.appendChild(h('div', 'fle-md fle-kreuz-warum')), (stimmt ? '✓ ' : '✗ ') + hinweis);
+      }
+    }
+    const male = () => {
+      for (const { b, i, wert } of knoepfe) {
+        const an = wahl[i] === wert;
+        b.classList.toggle('is-an', an);
+        b.setAttribute('aria-pressed', String(an));
+        if (!kprim) b.textContent = an ? (fall.mehrfach ? '☑' : '●') : (fall.mehrfach ? '☐' : '○');
+      }
+    };
+    male();
+    const loes = box.appendChild(h('div', 'fle-loesung'));
+    if (!offen) {
+      if (this.pruefung) return;
+      const b = loes.appendChild(h('button', 'fle-btn', 'Lösung zeigen'));
+      b.onclick = () => this.deckeAuf(key, bewerteKreuz([[...wahl]], fall));
+      return;
+    }
+    this.zeigeErgebnis(loes, key);
+    if (!kprim) {
+      loes.appendChild(h('div', 'fle-label', 'Lösung'));
+      loes.appendChild(h('div', 'fle-md', `Richtig: ${fall.richtig.join(', ')}`));
+    }
+    const erklaerung = fall.warum || fall.antwort;
+    if (erklaerung) this.md(loes.appendChild(h('div', 'fle-md fle-warum')), erklaerung);
   }
 
   // Mathe: ein Zahlenfeld, Tipps in zwei Stufen, dann Lösung mit Weg und Tastenweg; Spick-Vermerke
@@ -1753,7 +1924,7 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
         const start = (z.start || {})[key];
         const sek = start ? Math.round((Date.now() - start) / 1000) : 0;
         const wert = fall.art === 'buchung' ? bewerteBuchung(eingabe, fall.loesung) : istLeer(eingabe) ? 0
-          : fall.art === 'zahl' ? pruefeZahlFall(eingabe, fall) : null;
+          : fall.art === 'zahl' ? pruefeZahlFall(eingabe, fall) : istKreuz(fall) ? bewerteKreuz(eingabe, fall) : null;
         ergebnisse[key] = { wert, sek };
         aufgedeckt.add(key);
       }
@@ -1866,6 +2037,60 @@ const DRUCK_TEXT = {
 const kurz = (iso) => { const [, m, d] = iso.split('-'); return `${d}.${m}.`; };
 
 // Zahl hochzählen lassen (bei „weniger Bewegung“ sofort der Endwert)
+// Konfetti von links und rechts, wenn die Etappe des Tages geschafft ist (Wunsch 14.11.2026)
+function schiesseKonfetti(farben) {
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const cv = document.body.appendChild(document.createElement('canvas'));
+  cv.className = 'flz-konfetti';
+  const dpr = window.devicePixelRatio || 1;
+  const W = window.innerWidth, H = window.innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const ctx = cv.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const teile = [];
+  const salve = (seite, anzahl) => {
+    for (let i = 0; i < anzahl; i++) {
+      const winkel = (-90 - seite * (25 + Math.random() * 35)) * Math.PI / 180;   // links nach rechts oben, rechts nach links oben
+      const tempo = (0.9 + Math.random() * 0.7) * Math.min(W, H) * 0.028 + 6;
+      teile.push({
+        x: seite < 0 ? -10 : W + 10, y: H * (0.62 + Math.random() * 0.12),
+        vx: Math.cos(winkel) * tempo, vy: Math.sin(winkel) * tempo,
+        w: 6 + Math.random() * 6, hh: 4 + Math.random() * 5, rund: Math.random() < 0.25,
+        dreh: Math.random() * Math.PI, drehV: (Math.random() - 0.5) * 0.35,
+        kipp: Math.random() * Math.PI, kippV: 0.08 + Math.random() * 0.12,
+        farbe: farben[Math.floor(Math.random() * farben.length)],
+      });
+    }
+  };
+  salve(-1, 80); salve(1, 80);
+  window.setTimeout(() => { salve(-1, 45); salve(1, 45); }, 280);
+  const start = performance.now();
+  let letzt = start;
+  const bild = (jetzt) => {
+    const f = Math.min(3, (jetzt - letzt) / 16.7); letzt = jetzt;
+    ctx.clearRect(0, 0, W, H);
+    const alter = jetzt - start;
+    const blass = alter > 3200 ? Math.max(0, 1 - (alter - 3200) / 900) : 1;
+    let sichtbar = 0;
+    for (const t of teile) {
+      t.vy += 0.32 * f; t.vx *= Math.pow(0.986, f); t.vy *= Math.pow(0.986, f);
+      t.x += t.vx * f + Math.sin(t.kipp) * 0.6; t.y += t.vy * f;
+      t.dreh += t.drehV * f; t.kipp += t.kippV * f;
+      if (t.y > H + 20) continue;
+      sichtbar++;
+      ctx.save();
+      ctx.globalAlpha = blass;
+      ctx.translate(t.x, t.y); ctx.rotate(t.dreh); ctx.scale(1, Math.cos(t.kipp));
+      ctx.fillStyle = t.farbe;
+      if (t.rund) { ctx.beginPath(); ctx.arc(0, 0, t.hh * 0.6, 0, Math.PI * 2); ctx.fill(); }
+      else ctx.fillRect(-t.w / 2, -t.hh / 2, t.w, t.hh);
+      ctx.restore();
+    }
+    if ((sichtbar || alter < 400) && blass > 0) requestAnimationFrame(bild); else cv.remove();
+  };
+  requestAnimationFrame(bild);
+}
+
 function zaehleHoch(el, ziel, endung = '', form = String) {
   const ruhig = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   if (ruhig || ziel <= 0) { el.textContent = form(ziel) + endung; return; }
@@ -2370,7 +2595,10 @@ class LernzentraleAnsicht extends obsidian.ItemView {
       if (f) plaene[key] = { ...f, zeilen: key === 'fa' ? fa : key === 'ma' ? ma : neu[key] || [], cm: cfgFuer(MODUL_INFO[key].modul) };
     }
     // Etappe: Dauer aus dem Frontmatter der Lerneinheit („dauer: 52 Min“), Grund nur, wenn er aus Daten folgt
-    const etappe = etappeHeute(board, tag).map((p0) => {
+    const heuteFertig = new Set(Object.values((this.plugin.daten && this.plugin.daten.einheiten) || {})
+      .filter((z) => z && z.abgeschlossen === tag && z.datei)
+      .map((z) => z.datei.split('/').pop().replace(/\.md$/, '')));
+    const etappe = etappeHeute(board, tag, (link) => !!link && heuteFertig.has(String(link).split('/').pop().replace(/\.md$/, ''))).map((p0) => {
       let p = p0;
       const fm = p.link ? this.fm(p.link) : null;
       // Erledigte Karten stehen in „Erledigt“ ohne Spalte: Modul aus dem Frontmatter der Lerneinheit
@@ -2556,6 +2784,24 @@ class LernzentraleAnsicht extends obsidian.ItemView {
       };
     } else if (k.link) b.onclick = () => this.oeffne(k.link);
     else b.disabled = true;
+    // Aufgaben-Uhr für alles ohne eigene Lerneinheit (Videos, Lesen, Aufträge); Lerneinheiten haben ihren Timer
+    const modul = k.modul || Object.keys(MODUL_SPALTEN).find((x) => MODUL_SPALTEN[x] === k.spalte);
+    if (modul && k.art !== 'lerneinheit' && k.art !== 'wiederholen') {
+      const play = rahmen.appendChild(h('button', 'flz-play'));
+      play.dataset.uhr = `${modul}|${k.text}`;
+      play.setAttribute('aria-label', `Zeit messen: ${k.text}`);
+      play.title = 'Zeit messen';
+      play.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+      play.onclick = () => this.plugin.starteUhr({ text: k.text, modul, zeile: k.zeile, spalte: k.spalte });
+      this.markiereUhr();
+    }
+  }
+
+  // Karte, deren Uhr gerade läuft, hervorheben
+  markiereUhr() {
+    const u = this.plugin.daten.freiUhr;
+    const an = u ? `${u.modul}|${u.text}` : null;
+    for (const b of this.contentEl.querySelectorAll('.flz-play')) b.classList.toggle('is-an', b.dataset.uhr === an);
   }
 
   // Erledigt-Streifen unter der Tafel: zuletzt abgehakte Aufgaben, die neuesten zuerst
@@ -2793,9 +3039,29 @@ class LernzentraleAnsicht extends obsidian.ItemView {
         b.onclick = () => this.oeffne(p.link);
       }
     });
-    const z = schritte.appendChild(h('div', 'flz-schritt is-ziel'));
-    z.appendChild(h('span', 'flz-zielknoten'));
-    z.appendChild(h('div', 'flz-ziel-txt')).innerHTML = d.ziel ? `<b>${d.ziel.neu}&nbsp;%</b>${d.ziel.kurz} am Ziel, <span class="flz-nowrap">statt ${d.ziel.ist}&nbsp;%</span>` : '<b>Ziel</b>';
+    const geschafft = fertig === d.etappe.length;
+    const z = schritte.appendChild(h('div', 'flz-schritt is-ziel' + (geschafft ? ' is-geschafft' : '')));
+    const zk = z.appendChild(h('span', 'flz-zielknoten'));
+    if (geschafft) zk.innerHTML = '<span class="flz-ziel-fuell"></span>' + icon('<path d="M12 3l2.6 5.5 6 .8-4.4 4.1 1.1 5.9L12 16.4l-5.3 2.9 1.1-5.9-4.4-4.1 6-.8z"/>');
+    z.appendChild(h('div', 'flz-ziel-txt')).innerHTML = geschafft
+      ? '<b>Geschafft!</b>Etappe komplett'
+      : d.ziel ? `<b>${d.ziel.neu}&nbsp;%</b>${d.ziel.kurz} am Ziel, <span class="flz-nowrap">statt ${d.ziel.ist}&nbsp;%</span>` : '<b>Ziel</b>';
+    // Feiern einmal pro Tag, erst wenn das Ziel wirklich im Blick ist (nicht in einem versteckten Tab)
+    const daten = this.plugin.daten || {};
+    if (this.zielBeob) { this.zielBeob.disconnect(); this.zielBeob = null; }
+    if (geschafft && daten.konfettiTag !== d.tag && typeof IntersectionObserver === 'function') {
+      const beob = this.zielBeob = new IntersectionObserver((eintraege) => {
+        if (!eintraege.some((e) => e.isIntersecting) || !z.isConnected) return;
+        beob.disconnect();
+        if (daten.konfettiTag === d.tag) return;
+        daten.konfettiTag = d.tag;
+        this.plugin.saveData(daten);
+        z.classList.add('is-feiern');
+        window.setTimeout(() => schiesseKonfetti([...Object.values(MODUL_INFO).map((m) => m.farbe), '#f5c542', '#ff6b4a']), 650);
+      }, { threshold: 0.9 });
+      beob.observe(zk);
+      if (!this.zielAbmelden) { this.zielAbmelden = true; this.register(() => this.zielBeob && this.zielBeob.disconnect()); }
+    }
   }
 
   baueWoche(seite, d) {
@@ -3175,6 +3441,90 @@ class FaLerneinheit extends obsidian.Plugin {
     this.app.workspace.onLayoutReady(() => plane());
     this.registerEvent(this.app.vault.on('modify', (f) => { if (MODULE.some((m) => f.path === cfgFuer(m).fortschritt || f.basename === cfgFuer(m).fahrplan)) plane(); }));
     this.registerInterval(window.setInterval(plane, 3600_000));
+
+    // Aufgaben-Uhr: nach einem Neustart steht sie auf Pause, gezählt bis zum letzten Lebenszeichen
+    const u = this.daten.freiUhr;
+    if (u && u.seit != null) this.daten.freiUhr = uhrPause(u, u.puls || u.seit);
+    this.uhrLeiste = this.addStatusBarItem();
+    this.uhrLeiste.addClass('fle-uhrleiste');
+    this.zeigeUhr();
+    this.registerInterval(window.setInterval(() => this.uhrTick(), 1000));
+  }
+
+  // ── Aufgaben-Uhr ──
+  async starteUhr(karte) {
+    const u = this.daten.freiUhr;
+    if (u && u.text === karte.text && u.modul === karte.modul) { if (u.seit == null) this.uhrWeiter(); return; }
+    if (u) await this.stoppeUhr(false);
+    const jetzt = Date.now();
+    this.daten.freiUhr = { text: karte.text, modul: karte.modul, zeile: karte.zeile, spalte: karte.spalte, sek: 0, seit: jetzt, puls: jetzt };
+    this.speichere();
+    this.zeigeUhr();
+  }
+
+  uhrWeiter() {
+    const u = this.daten.freiUhr;
+    if (!u) return;
+    const jetzt = Date.now();
+    this.daten.freiUhr = u.seit == null ? { ...u, seit: jetzt, puls: jetzt } : uhrPause(u, jetzt);
+    this.speichere();
+    this.zeigeUhr();
+  }
+
+  // Stopp schreibt die Minuten in die Fortschrittsnotiz des Moduls; „fertig“ hakt die Karte zusätzlich ab
+  async stoppeUhr(fertig) {
+    const u = this.daten.freiUhr;
+    if (!u) return;
+    const sek = uhrSek(u, Date.now());
+    this.daten.freiUhr = null;
+    await this.saveData(this.daten);
+    this.zeigeUhr();
+    const min = Math.round(sek / 60);
+    const info = MODUL_INFO[u.modul];
+    const fs = info && this.app.vault.getAbstractFileByPath(cfgFuer(info.modul).fortschritt);
+    if (min > 0 && fs instanceof obsidian.TFile) await this.app.vault.process(fs, (t) => setzeZeit(t, u.text, heute(), min));
+    else if (min > 0) new obsidian.Notice(`Fortschrittsnotiz fehlt – ${min} min nicht gespeichert.`);
+    if (fertig && u.zeile) {
+      const board = this.app.vault.getAbstractFileByPath(CFG.board);
+      let ok = false;
+      try {
+        if (board instanceof obsidian.TFile) await this.app.vault.process(board, (alt) => { const n = hakeAb(alt, u.zeile, heute(), u.spalte); ok = n !== null; return n === null ? alt : n; });
+      } catch (err) { console.error('fa-lerneinheit Uhr abhaken', err); }
+      if (!ok) new obsidian.Notice('Zeit gespeichert, aber die Karte hat sich im Board geändert. Bitte dort abhaken.');
+    }
+    new obsidian.Notice(`${info ? info.kurz + ' · ' : ''}${u.text}: ${min} min gespeichert${fertig ? ' und abgehakt' : ''}.`);
+  }
+
+  uhrTick() {
+    const u = this.daten.freiUhr;
+    if (!u || u.seit == null) return;
+    const jetzt = Date.now();
+    // Lange kein Puls (Schlaf/Ruhezustand): nur bis zum letzten Puls zählen und pausieren
+    if (jetzt - u.puls > PAUSE_MS) { this.daten.freiUhr = uhrPause(u, u.puls); this.speichere(); this.zeigeUhr(); return; }
+    u.puls = jetzt;
+    if (!this.uhrGespeichert || jetzt - this.uhrGespeichert > PULS_MS) { this.uhrGespeichert = jetzt; this.speichere(); }
+    if (this.uhrZeit) this.uhrZeit.textContent = uhr(uhrSek(u, jetzt));
+  }
+
+  zeigeUhr() {
+    const el = this.uhrLeiste;
+    if (!el) return;
+    el.empty();
+    const u = this.daten.freiUhr;
+    el.toggleClass('is-aus', !u);
+    for (const v of this.app.workspace.getLeavesOfType(VIEW_LZ)) if (v.view && v.view.markiereUhr) v.view.markiereUhr();
+    if (!u) return;
+    const info = MODUL_INFO[u.modul];
+    el.toggleClass('is-pause', u.seit == null);
+    const t = el.createSpan({ cls: 'fle-ul-text' });
+    if (info) t.createEl('i', { attr: { style: `background:${info.farbe}` } });
+    t.appendText(`${info ? info.kurz + ' · ' : ''}${u.text}`);
+    t.title = u.text;
+    this.uhrZeit = el.createSpan({ cls: 'fle-ul-zeit', text: uhr(uhrSek(u, Date.now())) });
+    const knopf = (icon, titel, fn) => { const b = el.createEl('button', { cls: 'fle-ul-btn', attr: { 'aria-label': titel, title: titel } }); obsidian.setIcon(b, icon); b.onclick = fn; return b; };
+    knopf(u.seit == null ? 'play' : 'pause', u.seit == null ? 'Weiter' : 'Pause', () => this.uhrWeiter());
+    knopf('check', 'Fertig: Zeit speichern und Karte abhaken', () => this.stoppeUhr(true)).addClass('is-fertig');
+    knopf('square', 'Stopp: Zeit speichern, Karte bleibt offen', () => this.stoppeUhr(false));
   }
 
   /* Spick-PDF: HTML (Formeln als MathML), gedruckt mit Edge headless in einen Temp-Ordner.
@@ -3403,7 +3753,7 @@ class FaLerneinheit extends obsidian.Plugin {
 }
 
 module.exports = FaLerneinheit;
-module.exports.logik = { videosFuer, ERKLAERVIDEOS, folgtHinweis, kw,unterlagenGruppen, wiederholKarte, quizListe, themaMitQuiz, NEUE_MODULE, tafelSpalte, hakeAb, naechsteSiebenMitRest, UNTERLAGEN, PRUEFUNG, pruefungsSatz, modulDateien, letzteRunde, naechsteSieben, erledigtListe, fakten, fahrplanKennzahlen, hochrechnung, leseBoard, etappeHeute, lernMinuten, wocheVon, serie, tagesziel, MODUL_SPALTEN, pruefTempo, bewerteBuchung, prozentFuerMit, uebernahmeAblauf, istVorschlagSeite, pdfSeiten, pruefeSpick, spickAenderungen, uebernimmVorschlag, spickHtml, SPICK_MAX_ZEICHEN, noteMit, naechsteTodos, matheZeilen, cfgFuer, MODULE, leseZahl, leseZahlen, pruefeZahl, pruefeMenge, pruefeEinheit, KONTENPLAN, EINSCHAETZUNGEN, istKonto,
-  neuerZustand, starte, stoppeLaufenden, istWackelig, MAX_LAUF_S, stoppeNachAbsturz, nachPause, fallSekunden, matheEinheitZeile,
+module.exports.logik = { auswahlWahl, bewerteKprim, bewerteAuswahl, kprimWahl, videosFuer, ERKLAERVIDEOS, folgtHinweis, kw,unterlagenGruppen, wiederholKarte, quizListe, themaMitQuiz, NEUE_MODULE, tafelSpalte, hakeAb, naechsteSiebenMitRest, UNTERLAGEN, PRUEFUNG, pruefungsSatz, modulDateien, letzteRunde, naechsteSieben, erledigtListe, fakten, fahrplanKennzahlen, hochrechnung, leseBoard, etappeHeute, lernMinuten, wocheVon, serie, tagesziel, MODUL_SPALTEN, pruefTempo, bewerteBuchung, prozentFuerMit, uebernahmeAblauf, istVorschlagSeite, pdfSeiten, pruefeSpick, spickAenderungen, uebernimmVorschlag, spickHtml, SPICK_MAX_ZEICHEN, noteMit, naechsteTodos, matheZeilen, cfgFuer, MODULE, leseZahl, leseZahlen, pruefeZahl, pruefeMenge, pruefeEinheit, KONTENPLAN, EINSCHAETZUNGEN, istKonto,
+  neuerZustand, starte, stoppeLaufenden, istWackelig, MAX_LAUF_S, stoppeNachAbsturz, nachPause, fallSekunden, matheEinheitZeile, uhrSek, uhrPause, setzeZeit,
   hakeKarteAb, fortschrittZeile, setzeFortschritt, pruefungsErgebnis, restSekunden, freischaltung, normKonto, leseBetrag, pruefeBuchung, trefferQuote,
   leseFortschritt, punkteZeile, themaStatus, sollAm, druckStufe, noteAus, prozentFuer, statusAus, pruefeFahrplan, setzeWiederholung, tageBis };

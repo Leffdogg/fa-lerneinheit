@@ -49,8 +49,8 @@ Format wie in Schritt 7 von `SKILL.md`, aber:
   `art: Lerneinheit`, `quelle: Lernplan Wissensfächer`.
 - Im Block: `modul: ob` bzw. `pom` bzw. `kdw`. `thema:` muss ein **Stichwort aus dem Fahrplan**
   enthalten, sonst zählt die Einheit nicht für das Können.
-- **Jeder Schritt braucht `soll`** (Minuten). Fälle nur mit `antwort:` (Musterantwort, <NAME>
-  bewertet selbst), keine Buchungen. `punkte:` wie an der Prüfung setzen.
+- **Jeder Schritt braucht `soll`** (Minuten). Fälle mit `antwort:` (Musterantwort, <NAME>
+  bewertet selbst) oder als Ankreuzfall (`kprim:` / `optionen:`, siehe unten), keine Buchungen. `punkte:` wie an der Prüfung setzen.
 - Kein Beilage-Knopf (Kontenplan/Spick gibt es hier nicht).
 
 Schritte:
@@ -62,17 +62,22 @@ Schritte:
    `antwort`-Fall umformulieren, nicht wörtlich kopieren, mit der Begründung aus der Quizseite.
    Gibt es kein Quiz zum Thema, Aufwärmen aus der Theorienotiz.
 3. **Aufgaben im Prüfungsstil (10–12 Min):**
-   - **OB** (MooPad, Kprim und A+, keine Hilfsmittel): zwei **Kprim**-Fragen (vier Aussagen,
-     <NAME> schreibt zu jeder richtig/falsch; `antwort` nennt alle vier mit je einem Halbsatz Grund,
-     `punkte: 3`; volle Punkte nur bei 4/4, 1,5 bei 3/4) und zwei **A+**-Fragen (eine richtige von vier,
-     `punkte: 1`). Stoff aus die Theorienotiz und den Begleitfolien.
+   - **OB** (MooPad, Kprim und A+, keine Hilfsmittel): zwei **Kprim**-Fragen und zwei **A+**-Fragen,
+     immer als **Ankreuzfall** (<NAME> klickt, das Plugin bewertet selbst; nie als `antwort`-Textfeld):
+     - Kprim: `text` = Frage ohne Aussagen, `kprim:` Liste von vier `{ aussage, richtig: true/false, warum }`
+       (`warum` = Halbsatz Grund), `punkte: 3`. Plugin: 4/4 voll, 3/4 halb.
+     - A+: `text` = Frage, `optionen:` vier Antworten ohne Buchstaben (das Plugin setzt A–D),
+       `richtig: B` (ein Buchstabe), `warum:` warum die anderen falsch sind, `punkte: 1`.
+     Stoff aus der Theorienotiz und den Begleitfolien.
    - **PoM** (hybrid: Hälfte MooPad zu den Leseaufträgen, Hälfte Fallstudie handschriftlich):
      zwei kurze strukturierte Fragen zum Leseauftrag (Thommen-Kapitel laut Semesterprogramm) und
      **ein Mini-Fall** (3–4 Sätze Ausgangslage, ein Unternehmen wie im TOPSIM), der ein Modell der
      Kontakteinheit anwenden lässt, `punkte: 4–6`. Laut Studierenden aus dem Vorjahr ähneln die Prüfungsfragen den
      Moodle-Quiz (Wissensüberprüfung, wahr/falsch mit Überzeugung), also auch solche Aussagen einbauen.
-   - **KDW** (E-Assessment MC, 60 Min): vier **MC-Fragen** zum Thema (eine oder mehrere richtig),
-     `antwort` nennt die richtigen und warum die anderen falsch sind.
+   - **KDW** (E-Assessment MC, 60 Min): vier **MC-Fragen** zum Thema als Ankreuzfall: `optionen:`,
+     `richtig: [A, C]` (Liste = mehrere ankreuzbar, auch wenn nur einer stimmt) oder `richtig: B`
+     (genau eine), `warum:` nennt die richtigen und warum die anderen falsch sind.
+   - Richtig/falsch-Aussagen (auch PoM-Wissensüberprüfung) immer als `kprim:`-Liste statt Textfeld.
 4. **Einschätzen.**
 
 ## Prüfen

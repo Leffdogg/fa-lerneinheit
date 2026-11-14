@@ -694,6 +694,24 @@
 .flz button.flz-haken { position: absolute; top: 11px; left: 12px; width: 17px; height: 17px; padding: 0; border-radius: 50%; border: 1.5px solid var(--text-faint); background: var(--background-primary); box-shadow: none; cursor: pointer; transition: border-color .15s, background .15s; }
 .flz button.flz-haken:hover, .flz button.flz-haken:focus-visible { border-color: #1baf7a; background: color-mix(in srgb, #1baf7a 14%, transparent); }
 .flz button.flz-haken:hover::after { content: ''; position: absolute; left: 4.5px; top: 1.5px; width: 4px; height: 8px; border: solid #1baf7a; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+/* Aufgaben-Uhr: ▶ oben rechts, erst beim Darüberfahren sichtbar; läuft sie, bleibt er blau */
+.flz .flz-bk-rahmen:has(.flz-play) button.flz-bk { padding-right: 38px; }
+.flz button.flz-play { position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; padding: 0; display: grid; place-items: center; border-radius: 50%; border: none; background: transparent; box-shadow: none; color: var(--text-faint); cursor: pointer; opacity: 0; transition: opacity .15s, color .15s, background .15s; }
+.flz button.flz-play svg { width: 13px; height: 13px; margin-left: 1px; }
+.flz .flz-bk-rahmen:hover button.flz-play, .flz button.flz-play:focus-visible { opacity: 1; }
+.flz button.flz-play:hover { color: var(--flz-ak); background: color-mix(in srgb, var(--flz-ak) 14%, transparent); }
+.flz button.flz-play.is-an { opacity: 1; color: #fff; background: var(--flz-ak); }
+/* Statusleiste */
+.fle-uhrleiste.is-aus { display: none; }
+.fle-uhrleiste { display: flex; align-items: center; gap: 6px; }
+.fle-uhrleiste .fle-ul-text { display: inline-flex; align-items: center; gap: 5px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fle-uhrleiste .fle-ul-text i { flex: none; width: 7px; height: 7px; border-radius: 50%; }
+.fle-uhrleiste .fle-ul-zeit { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text-normal); }
+.fle-uhrleiste.is-pause .fle-ul-zeit { color: var(--text-faint); }
+.fle-uhrleiste button.fle-ul-btn { padding: 0 3px; height: 18px; background: transparent; box-shadow: none; border: none; color: var(--text-muted); cursor: pointer; }
+.fle-uhrleiste button.fle-ul-btn svg { width: 13px; height: 13px; }
+.fle-uhrleiste button.fle-ul-btn:hover { color: var(--text-normal); }
+.fle-uhrleiste button.fle-ul-btn.is-fertig:hover { color: #1baf7a; }
 .flz .flz-bk-rahmen .flz-bk-zeile { justify-content: flex-start; flex-wrap: wrap; gap: 4px 8px; }
 .flz .flz-bk-rahmen .flz-etikett { white-space: nowrap; }
 .flz .flz-bk-rahmen .flz-bk-wann { min-width: 0; overflow-wrap: anywhere; }
@@ -827,3 +845,42 @@
 }
 .fle .fle-video-liste button.fle-video-chip.is-aktiv { border-color: var(--fle-akzent); color: var(--text-normal); background: rgba(var(--fle-akzent-rgb), 0.1); }
 .fle-video-link { align-self: flex-start; font-size: var(--font-ui-smaller); color: var(--text-muted); }
+
+/* Ankreuzfragen (Kprim, A+, MC) */
+.fle-kreuz { display: flex; flex-direction: column; gap: 6px; }
+.fle-kreuz-zeile {
+  display: grid; grid-template-columns: 1.6em minmax(0, 1fr) auto; align-items: center; gap: 4px 10px;
+  padding: 8px 10px; border: 1px solid var(--fle-rand); border-radius: var(--fle-r-klein);
+}
+.fle-kreuz-nr { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.fle-kreuz-text > p { margin: 0; }
+.fle-kreuz-wahl { display: flex; gap: 6px; }
+.fle .fle-kreuz-btn { min-width: 2.4em; }
+.fle .fle-kreuz-btn.is-an { background: var(--fle-akzent); color: var(--text-on-accent); border-color: var(--fle-akzent); }
+.fle .fle-kreuz-btn:disabled { cursor: default; opacity: 1; }
+.fle .fle-kreuz-btn:disabled:not(.is-an) { opacity: 0.45; }
+.fle-kreuz-zeile.is-richtig { border-color: rgba(var(--color-green-rgb), 0.6); background: rgba(var(--color-green-rgb), 0.06); }
+.fle-kreuz-zeile.is-falsch { border-color: rgba(var(--color-red-rgb), 0.6); background: rgba(var(--color-red-rgb), 0.06); }
+.fle-kreuz-zeile.is-loesung .fle-kreuz-text { font-weight: 600; }
+.fle-kreuz-warum { grid-column: 2 / -1; font-size: var(--font-ui-small); color: var(--text-muted); }
+.fle-kreuz-warum > p { margin: 0; }
+
+/* Etappe geschafft: Ziel lädt sich voll, Stern springt rein (Konfetti-Belohnung, 14.11.2026) */
+.flz-konfetti { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 9999; }
+.flz-schritt.is-geschafft .flz-zielknoten { border-color: transparent; color: #fff; }
+.flz-schritt.is-geschafft .flz-zielknoten::after { display: none; }
+/* Füllung deckt auch den Rand ab: eine einzige grüne Fläche, keine helle Naht */
+.flz-ziel-fuell { position: absolute; inset: -2.5px; background: var(--flz-gut); border-radius: 50%; }
+.flz-schritt.is-geschafft .flz-zielknoten svg { position: relative; width: 18px; height: 18px; fill: currentColor; stroke-width: 1.6; }
+.flz-schritt.is-geschafft .flz-ziel-txt b { color: var(--flz-gut); }
+/* Nur beim ersten Mal am Tag: von unten volllaufen, Stern ploppt, Knoten hüpft, Lichtring */
+.flz-schritt.is-feiern .flz-ziel-fuell { animation: flz-fuellen 900ms cubic-bezier(.5, 0, .3, 1) both; }
+.flz-schritt.is-feiern .flz-zielknoten svg { animation: flz-stern 520ms cubic-bezier(.3, 1.6, .5, 1) 850ms both; }
+.flz-schritt.is-feiern .flz-zielknoten { animation: flz-huepf 600ms var(--flz-aus) 850ms, flz-glanz 1.4s ease-out 900ms 2, flz-rand 900ms step-end both; }
+@keyframes flz-rand { from { border-color: var(--flz-gut); } to { border-color: transparent; } }
+.flz-schritt.is-feiern .flz-ziel-txt { animation: flz-zieltxt 500ms var(--flz-aus) 900ms both; }
+@keyframes flz-fuellen { from { clip-path: inset(100% 0 0 0 round 50%); } to { clip-path: inset(0 0 0 0 round 50%); } }
+@keyframes flz-stern { from { transform: scale(0) rotate(-120deg); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes flz-huepf { 0%, 100% { transform: none; } 40% { transform: scale(1.28); } 70% { transform: scale(.94); } }
+@keyframes flz-glanz { from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--flz-gut) 55%, transparent); } to { box-shadow: 0 0 0 16px color-mix(in srgb, var(--flz-gut) 0%, transparent); } }
+@keyframes flz-zieltxt { from { opacity: 0; transform: translateY(6px); } }
