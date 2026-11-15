@@ -1126,12 +1126,15 @@ function hakeAb(boardText, zeile, heuteISO = null, spalte = null) {
 // heuteFertig(link): true, wenn das Plugin die Einheit heute abgeschlossen hat. Kanban speichert kein ✅-Datum,
 // darum fiel eine heute erledigte, aber gestern fällige Einheit sonst aus der Etappe (14.11. „Bewertung nach OR“).
 function etappeHeute(board, heuteISO, heuteFertig = () => false) {
+  // Seit 15.11.2026: alle heute fälligen Karten, nicht nur Lerneinheiten (z. B. ein Quiz)
+  // Überfällige normale Karten nicht (sonst 17 Posten), nur Lerneinheiten dürfen nachhängen.
   const lernt = (k) => k.art === 'lerneinheit' || k.art === 'wiederholen';
-  const fertig = (board.erledigt || []).filter((k) => lernt(k) && ((k.erledigtAm || k.datum) === heuteISO || heuteFertig(k.link)))
+  const passt = (k) => lernt(k) ? k.datum <= heuteISO : k.datum === heuteISO;
+  const fertig = (board.erledigt || []).filter((k) => lernt(k) ? ((k.erledigtAm || k.datum) === heuteISO || heuteFertig(k.link)) : k.erledigtAm === heuteISO)
     .map((k) => ({ text: k.text, link: k.link, modul: null, status: 'fertig', art: k.art }));
   const offen = [];
   for (const key of MODUL_KEYS) {
-    for (const k of board[key] || []) if (lernt(k) && k.datum && k.datum <= heuteISO) offen.push({ text: k.text, link: k.link, modul: key, status: 'offen', art: k.art });
+    for (const k of board[key] || []) if (k.datum && passt(k)) offen.push({ text: k.text, link: k.link, modul: key, status: 'offen', art: k.art });
   }
   // Board-Reihenfolge der Spalten: wie im Kanban von links nach rechts (alphabetisch, übliche Anlage)
   offen.sort((a, b) => MODUL_SPALTEN[a.modul].localeCompare(MODUL_SPALTEN[b.modul], 'de'));
