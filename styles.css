@@ -493,6 +493,10 @@
 .flz-s-meta i { width: 7px; height: 7px; border-radius: 50%; }
 .flz-s-grund { font-size: 12.5px; color: var(--text-faint); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .flz-s-text .flz-btn { margin-top: 8px; }
+.flz-schritt.is-jetzt .flz-s-text .flz-btn { display: flex; box-sizing: border-box; width: 100%; max-width: 140px; justify-content: center; }
+.flz-s-text .flz-btn.flz-s-schieb.is-hover { padding: 4px 10px; font-size: 12.5px; }
+.flz-s-text .flz-btn.flz-s-schieb.is-hover { margin-left: 0; opacity: 0; transition: opacity 150ms; }
+.flz-schritt:hover .flz-btn.flz-s-schieb.is-hover, .flz-btn.flz-s-schieb.is-hover:focus-visible { opacity: 1; }
 .flz-zielknoten { position: relative; z-index: 1; width: 36px; height: 36px; border-radius: 50%; border: 2.5px solid var(--flz-ak); background: var(--background-primary); display: grid; place-items: center; }
 .flz-zielknoten::after { content: ""; width: 14px; height: 14px; border-radius: 50%; border: 2.5px solid var(--flz-ak); }
 .flz-ziel-txt { font-size: 12.5px; color: var(--text-muted); }
@@ -884,3 +888,21 @@
 @keyframes flz-huepf { 0%, 100% { transform: none; } 40% { transform: scale(1.28); } 70% { transform: scale(.94); } }
 @keyframes flz-glanz { from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--flz-gut) 55%, transparent); } to { box-shadow: 0 0 0 16px color-mix(in srgb, var(--flz-gut) 0%, transparent); } }
 @keyframes flz-zieltxt { from { opacity: 0; transform: translateY(6px); } }
+
+/* Bezug auf einen früheren Fall (16.11.2026) */
+.fle-bezug { border-left: 3px solid var(--interactive-accent); background: var(--background-secondary); border-radius: 6px; padding: 6px 10px; font-size: 0.9em; color: var(--text-muted); }
+.fle-bezug-titel { font-weight: 600; font-size: 0.85em; margin-bottom: 2px; }
+.fle-bezug .fle-md p { margin: 2px 0; }
+.fle-bezug-loesung { margin-top: 4px; border-collapse: collapse; }
+.fle-bezug-loesung td { padding: 1px 12px 1px 0; }
+
+/* So läuft die Prüfung (Fahrplan, 16.11.2026) */
+.fle-plan-pruefung { margin-bottom: 14px; padding: 8px 14px; border-radius: 8px; background: var(--background-secondary); border: 1px solid var(--background-modifier-border); }
+.fle-plan-pruefung summary { cursor: pointer; color: var(--text-muted); font-size: 0.92em; }
+.fle-plan-pruefung[open] summary { margin-bottom: 8px; }
+.fle-plan-pruefung dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0 0 8px; }
+.fle-plan-pruefung dt { color: var(--text-muted); font-size: 0.86em; }
+.fle-plan-pruefung dd { margin: 0; }
+.fle-plan-pruefung-h { color: var(--text-muted); font-size: 0.86em; margin-bottom: 2px; }
+.fle-plan-pruefung ul { margin: 0; padding-left: 18px; }
+.fle-plan-pruefung li { margin: 2px 0; }

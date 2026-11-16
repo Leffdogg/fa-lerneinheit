@@ -249,6 +249,43 @@ function pruefTempo(faelle) {
     : (typeof fall.punkte === 'number' && fall.punkte > 0 ? fall.punkte : TEMPO.frageOhnePunkte)), 0);
 }
 
+// Bezug auf frühere Fälle (Wunsch 16.11.2026: nicht zurückscrollen müssen).
+// `bezug:` am Fall: "a" = Fall a im selben Schritt, "2a"/"2.a" = Fall a in Schritt 2, "2" = Einleitung/Text von Schritt 2.
+// Ohne `bezug:` werden Erwähnungen wie „aus a)“ im Text erkannt, wenn a ein früherer Fall im selben Schritt ist.
+// Liefert [{ si, fall|null }] (si 0-basiert) oder { fehler }.
+function bezuege(schritte, si, fall) {
+  const out = [];
+  const frueher = (s, id) => (schritte[s].faelle || []).findIndex((x) => String(x.id) === id);
+  if (fall.bezug != null) {
+    for (const roh of Array.isArray(fall.bezug) ? fall.bezug : [fall.bezug]) {
+      const m = /^\s*(?:(\d+)\s*\.?\s*)?([a-z]\w*)?\s*$/i.exec(String(roh));
+      if (!m || (!m[1] && !m[2])) return { fehler: `Bezug „${roh}“ nicht lesbar (Beispiele: a, 2a, 2).` };
+      const s = m[1] ? Number(m[1]) - 1 : si;
+      if (!schritte[s] || s > si) return { fehler: `Bezug „${roh}“: Schritt gibt es nicht oder er kommt später.` };
+      if (!m[2]) { out.push({ si: s, fall: null }); continue; }
+      const i = frueher(s, m[2]);
+      const eigen = (schritte[si].faelle || []).findIndex((x) => x === fall);
+      if (i < 0 || (s === si && i >= eigen)) return { fehler: `Bezug „${roh}“: kein früherer Fall mit dieser id.` };
+      out.push({ si: s, fall: schritte[s].faelle[i] });
+    }
+    return out;
+  }
+  const eigen = (schritte[si].faelle || []).findIndex((x) => x === fall);
+  const gesehen = new Set();
+  const dazu = (s, i) => { if (s >= 0 && i >= 0 && (s < si || i < eigen) && !gesehen.has(`${s}.${i}`)) { gesehen.add(`${s}.${i}`); out.push({ si: s, fall: schritte[s].faelle[i] }); } };
+  // „Aufgabe 2 a)“ / „aus der ersten Aufgabe, Fall a)“ = n-ter Schritt der Art „aufgabe“
+  const aufgaben = schritte.map((s, i) => (s.art === 'aufgabe' ? i : -1)).filter((i) => i >= 0);
+  const ORD = { ersten: 1, zweiten: 2, dritten: 3, vierten: 4 };
+  let rest = String(fall.text || '');
+  rest = rest.replace(/Aufgabe\s+(\d+)\s*,?\s*(?:Fall\s+)?([a-h])\)|(ersten|zweiten|dritten|vierten)\s+Aufgabe\s*,?\s*(?:Fall\s+)?([a-h])\)/g, (_, n, id, ord, id2) => {
+    const s = aufgaben[(n ? Number(n) : ORD[ord]) - 1];
+    if (s != null) dazu(s, frueher(s, id || id2));
+    return ' ';
+  });
+  for (const m of rest.matchAll(/(?:^|[^\w])([a-h])\)/g)) dazu(si, frueher(si, m[1]));
+  return out;
+}
+
 function pruefeEinheit(obj) {
   const f = (fehler) => ({ ok: false, fehler });
   if (!obj || typeof obj !== 'object') return f('Der Block ist leer.');
@@ -310,6 +347,14 @@ function pruefeEinheit(obj) {
           neu.faelle.push({ ...fall, id: String(fall.id), optionen: fall.optionen.map(String), richtig, mehrfach, art: 'auswahl' });
           continue;
         }
+        // Gesuchte Zahl (seit 15.11.2026): ein Zahlenfeld mit Einheit,
+        // prüft sich selbst wie bei Mathe. Erklärung über `weg` (Liste) oder `warum`.
+        if (fall.zahl != null) {
+          const zahlen = Array.isArray(fall.zahl) ? fall.zahl : [fall.zahl];
+          if (!zahlen.length || zahlen.some((x) => typeof x !== 'number' || !Number.isFinite(x))) return f(`${wf}: „zahl“ muss eine Zahl (oder Liste von Zahlen) sein.`);
+          neu.faelle.push({ ...fall, id: String(fall.id), art: 'zahl' });
+          continue;
+        }
         // Rechen- oder Textfrage statt Buchung: Textfeld, Musterantwort beim Aufdecken
         if (fall.antwort != null) {
           neu.faelle.push({ ...fall, id: String(fall.id), art: 'antwort' });
@@ -333,6 +378,10 @@ function pruefeEinheit(obj) {
     for (const s of schritte) for (const fall of s.faelle || []) {
       if (typeof fall.punkte !== 'number' || fall.punkte <= 0) return f(`Probeprüfung: Fall ${fall.id} in „${s.titel}“ braucht „punkte“.`);
     }
+  }
+  for (const [si, s] of schritte.entries()) for (const fall of s.faelle || []) {
+    const b = bezuege(schritte, si, fall);
+    if (b.fehler) return f(`Schritt ${si + 1}, Fall ${fall.id}: ${b.fehler}`);
   }
   return { ok: true, einheit: { ...obj, id: String(obj.id), modul, schritte } };
 }
@@ -532,6 +581,63 @@ function leseFortschritt(text) {
 const MODUL_SPALTEN = { fa: 'Financial Accounting', ma: 'Angewandte Mathematik 1', ob: 'Organisational Behaviour', pom: 'Principles of Management', kdw: 'Kritisches Denken' };
 const MODUL_KEYS = Object.keys(MODUL_SPALTEN);
 const leerMinuten = () => ({ fa: 0, ma: 0, ob: 0, pom: 0, kdw: 0 });
+
+// ── Automatische Lernzeit (Wunsch 16.11.2026: Zeit überall messen, nichts drücken) ──
+// Zu welchem Modul gehört eine offene Datei? Ordner „Module/<Modul>/…“ oder Frontmatter „modul:“ (Name oder Kürzel).
+function modulAusPfad(pfad, fmModul) {
+  const teile = String(pfad || '').split('/');
+  const i = teile.indexOf('Module');
+  if (i >= 0 && teile.length > i + 2) {
+    const k = MODUL_KEYS.find((x) => MODUL_SPALTEN[x] === teile[i + 1]);
+    if (k) return k;
+  }
+  const m = String(fmModul || '').trim().toLowerCase();
+  if (!m) return null;
+  if (m === 'mathe') return 'ma';
+  return MODUL_KEYS.find((x) => x === m || MODUL_SPALTEN[x].toLowerCase() === m || MODUL_INFO[x].name.toLowerCase() === m) || null;
+}
+// Sekunden pro Tag und Modul: { '2026-11-16': { fa: 120, … } }
+function zeitDazu(zeit, iso, key, sek) {
+  if (!iso || !MODUL_KEYS.includes(key) || !(sek > 0)) return zeit;
+  if (!zeit[iso]) zeit[iso] = {};
+  zeit[iso][key] = (zeit[iso][key] || 0) + sek;
+  return zeit;
+}
+// Gemessene Zeit und Fortschritts-Minuten messen dasselbe Lernen doppelt: pro Tag und Modul gilt der grössere Wert.
+function mischeZeit(proTag, zeit) {
+  const out = new Map([...proTag].map(([iso, m]) => [iso, { ...leerMinuten(), ...m }]));
+  for (const [iso, m] of Object.entries(zeit || {})) {
+    for (const k of MODUL_KEYS) {
+      const min = Math.round(((m && m[k]) || 0) / 60);
+      if (!(min > 0)) continue;
+      if (!out.has(iso)) out.set(iso, leerMinuten());
+      out.get(iso)[k] = Math.max(out.get(iso)[k], min);
+    }
+  }
+  return out;
+}
+// Zeit läuft erst „auf Probe“: Sie wird erst gutgeschrieben, wenn wieder eine Aktivität kommt.
+// Bleibt die zu lange aus, verfällt alles seit der letzten Aktivität (Regel 16.11.2026).
+// Beim Video gilt eine längere Frist, weil man dabei nichts anfasst.
+const RUHE_MS = 5 * 60_000;
+const VIDEO_RUHE_MS = 30 * 60_000;
+function zeitSchritt(st, { jetzt, sek, modul, aktiv, schaut }) {
+  const offen = { ...(st.offen || {}) };
+  let letzte = st.letzte == null ? jetzt : st.letzte;
+  if (modul && sek > 0) offen[modul] = (offen[modul] || 0) + sek;
+  if (aktiv) {
+    letzte = jetzt;
+    return { st: { offen: {}, letzte }, gut: offen };
+  }
+  if (jetzt - letzte > (schaut ? VIDEO_RUHE_MS : RUHE_MS)) return { st: { offen: {}, letzte }, gut: {} };
+  return { st: { offen, letzte }, gut: {} };
+}
+// Wochenziel mit Stufen ab Datum, z. B. { '2026-12-01': 1440 }; davor gilt wochenzielMin
+function wochenzielFuer(iso, cfg) {
+  let wert = Number(cfg.wochenzielMin) || 360;
+  for (const [ab, min] of Object.entries(cfg.wochenzielAb || {}).sort()) if (ab <= iso && Number(min) > 0) wert = Number(min);
+  return wert;
+}
 // Mathe-Aufgabenzeile „Art · Einheit 3a“ → „Einheit“
 const einheitAusAufgabe = (thema) => String(thema).split(' · ').slice(1).join(' · ').replace(/\s+\S+$/, '');
 
@@ -785,6 +891,22 @@ function sollAm(thema, tag, pruefung) {
   return Math.round(SOLL.amStichtag + (SOLL.ziel - SOLL.amStichtag) * anteil);
 }
 
+// Soll nach Unterricht (16.11.2026): Was im Unterricht dran war, sollte man können – egal, wann der eigene
+// Aufholplan (stichtag) es einplant. Eine Woche nach dem Unterricht das Ziel-Niveau (80 % = Note 5),
+// danach weiter bis 90 % eine Woche vor der Prüfung. Ohne „unterricht:“ gilt eine Woche vor dem Stichtag.
+const STOFF = { nachTagen: 7, niveau: 80 };
+const unterrichtVon = (thema) => (thema.unterricht ? isoTag(thema.unterricht) : plusTage(thema.stichtag, -STOFF.nachTagen));
+function sollStoff(thema, tag, pruefung, niveau = STOFF.niveau) {
+  const start = unterrichtVon(thema);
+  if (tag <= start) return 0;
+  const n = Math.min(SOLL.ziel, Math.max(0, niveau));
+  const sitzt = plusTage(start, STOFF.nachTagen);
+  if (tag < sitzt) return Math.round(n * tageBis(start, tag) / STOFF.nachTagen);
+  const ende = plusTage(pruefung, -SOLL.puffer);
+  if (tag >= ende || sitzt >= ende) return SOLL.ziel;
+  return Math.round(n + (SOLL.ziel - n) * tageBis(sitzt, tag) / tageBis(sitzt, ende));
+}
+
 // Druck aus Ist gegen Soll: noch nicht dran / im Plan / knapp / Rückstand / Alarm
 function druckStufe(ist, soll) {
   if (soll <= 0 && ist <= 0) return 'ruhe';
@@ -793,8 +915,10 @@ function druckStufe(ist, soll) {
   return quote >= 0.8 ? 'knapp' : quote >= 0.6 ? 'hinten' : 'alarm';
 }
 
-function themaStatus(thema, zeilen, heuteISO, pruefung = '2099-12-31') {
+function themaStatus(thema, zeilen, heuteISO, pruefung = '2099-12-31', niveau = STOFF.niveau) {
   const soll = sollAm(thema, heuteISO, pruefung);
+  const stoff = sollStoff(thema, heuteISO, pruefung, niveau);
+  const behandelt = unterrichtVon(thema) <= heuteISO;
   const roh = zeilen
     .filter((z) => thema.stichworte.some((w) => trifft(z.stufe === 'Aufgabe' ? z.thema.split(' · ')[0] : z.thema, w)) && punkteZeile(z) !== null)
     .map((z, i) => ({ z, i }))
@@ -814,7 +938,7 @@ function themaStatus(thema, zeilen, heuteISO, pruefung = '2099-12-31') {
   const treffer = [...proTag.values()].map((x) => ({ ...x.z, _p: x.p }));
   if (!treffer.length) {
     const status = heuteISO > thema.stichtag ? 'ueberfaellig' : 'offen';
-    return { status, koennen: 0, soll, druck: druckStufe(0, soll), letzte: null, wieder: null, anzahl: 0 };
+    return { status, koennen: 0, soll, stoff, behandelt, druck: druckStufe(0, soll), letzte: null, wieder: null, anzahl: 0 };
   }
   // Letzte drei Einschätzungen, die neueste zählt am meisten (Gewicht 1, 2, 3)
   const drei = treffer.slice(-3).map((z) => z._p);
@@ -825,7 +949,7 @@ function themaStatus(thema, zeilen, heuteISO, pruefung = '2099-12-31') {
   const ueber = Math.max(0, tageBis(wieder, heuteISO));
   const koennen = Math.max(0, Math.round(basis - ueber * VERGESSEN_PRO_TAG));
   return {
-    status: statusAus(koennen), koennen, soll, druck: druckStufe(koennen, soll),
+    status: statusAus(koennen), koennen, soll, stoff, behandelt, druck: druckStufe(koennen, soll),
     letzte: letzte.datum, quelle: letzte.thema, wieder, anzahl: treffer.length,
   };
 }
@@ -870,18 +994,24 @@ function fahrplanKennzahlen(themen, plan, cm, tag) {
   const n = Math.max(1, themen.length);
   let ist = Math.round(themen.reduce((s, t) => s + t.koennen, 0) / n);
   let soll = Math.round(themen.reduce((s, t) => s + t.soll, 0) / n);
+  // „Solltest du heute können“: Schnitt über die Themen aus dem Unterricht (mit unterricht:). Training und Meilensteine
+  // ohne Unterrichtstermin zählen dort nicht mit, sonst drücken sie das Soll, obwohl der Stoff längst dran war.
+  const ausUnterricht = themen.filter((t) => t.unterricht && !t.fertig);
+  const basis = ausUnterricht.length ? ausUnterricht : themen;
+  let stoff = Math.round(basis.reduce((s, t) => s + (t.stoff || 0), 0) / basis.length);
   // Teile mit Gewicht (KDW: Disposition 70 %, MC-Test 30 %): Schnitt pro Teil, dann nach Gewicht
   const gw = plan.teile_gewicht && typeof plan.teile_gewicht === 'object' ? plan.teile_gewicht : null;
   if (gw) {
-    let summe = 0, i = 0, so = 0;
+    let summe = 0, i = 0, so = 0, st = 0;
     for (const [teil, g] of Object.entries(gw)) {
       const tt = themen.filter((t) => (t.teil || '') === teil);
       if (!tt.length || !(Number(g) > 0)) continue;
       summe += Number(g);
       i += Number(g) * tt.reduce((s, t) => s + t.koennen, 0) / tt.length;
       so += Number(g) * tt.reduce((s, t) => s + t.soll, 0) / tt.length;
+      st += Number(g) * tt.reduce((s, t) => s + (t.stoff || 0), 0) / tt.length;
     }
-    if (summe) { ist = Math.round(i / summe); soll = Math.round(so / summe); }
+    if (summe) { ist = Math.round(i / summe); soll = Math.round(so / summe); stoff = Math.round(st / summe); }
   }
   // Nächster Meilenstein: der erste Teil, in dem noch nicht alles sitzt, fertig am spätesten Stichtag dieses Teils
   let meilenstein = null;
@@ -891,8 +1021,17 @@ function fahrplanKennzahlen(themen, plan, cm, tag) {
     meilenstein = { text: `${(teil || 'Stoff').split(' –')[0].trim()} fertig`, datum: tt.map((t) => t.stichtag).sort().pop() };
     break;
   }
+  // Druck misst den eigenen Aufholplan (stichtag). Wer dort im Plan ist, aber klar hinter dem Unterricht liegt,
+  // sieht „Aufholen“ in Gelb statt eines grünen „Im Plan“.
+  // Unter 5 Punkten Abstand zum eigenen Plan ist kein Rückstand (sonst wäre 0 % gegen 1 % schon Alarm)
+  let druck = soll - ist < 5 ? (soll <= 0 && ist <= 0 ? 'ruhe' : 'gut') : druckStufe(ist, soll);
+  const aufholen = (druck === 'gut' || druck === 'ruhe') && ist < stoff * 0.8;
+  if (aufholen) druck = 'knapp';
+  const stoffThemen = themen.filter((t) => !t.fertig && t.unterricht);
   return {
-    rest: Math.max(tageBis(tag, plan.pruefung), 0), ist, soll, druck: druckStufe(ist, soll),
+    rest: Math.max(tageBis(tag, plan.pruefung), 0), ist, soll, stoff, aufholen, druck,
+    behandelt: stoffThemen.filter((t) => t.behandelt).length, stoffThemen: stoffThemen.length,
+    aufgeholtBis: themen.filter((t) => t.behandelt && !t.fertig).map((t) => t.stichtag).sort().pop() || null,
     note: noteMit(ist, cm.maxPunkte, cm.bonus), ziel: Number(plan.zielnote) || 0,
     wackelig: themen.filter((t) => t.status === 'wackelig').map((t) => t.thema), meilenstein,
   };
@@ -911,6 +1050,8 @@ function hochrechnung(themen, zeilen, posten, heuteISO, pruefung) {
 }
 
 const isoTag = (v) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v || ''));
+// Ziel-Niveau des Stoffs aus der Zielnote des Fahrplans (Note 5 = 80 %), ohne Zielnote 80 %
+const niveauAus = (plan) => (Number(plan && plan.zielnote) >= 4 ? Math.min(90, prozentFuer(Number(plan.zielnote))) : STOFF.niveau);
 
 function pruefeFahrplan(roh) {
   if (!roh || typeof roh !== 'object') return { ok: false, fehler: 'kein YAML' };
@@ -923,7 +1064,7 @@ function pruefeFahrplan(roh) {
   }
   const modul = roh.modul == null ? 'fa' : String(roh.modul);
   if (!MODULE.includes(modul)) return { ok: false, fehler: `modul muss ${MODULE.join(' oder ')} sein` };
-  return { ok: true, plan: { ...roh, modul, spick_frieren: roh.spick_frieren ? isoTag(roh.spick_frieren) : undefined, pruefung: isoTag(roh.pruefung), themen: roh.themen.map((t) => ({ ...t, stichtag: isoTag(t.stichtag), fertig: t.fertig ? isoTag(t.fertig) : undefined, stichworte: t.stichworte.map(String) })) } };
+  return { ok: true, plan: { ...roh, modul, spick_frieren: roh.spick_frieren ? isoTag(roh.spick_frieren) : undefined, pruefung: isoTag(roh.pruefung), themen: roh.themen.map((t) => ({ ...t, stichtag: isoTag(t.stichtag), fertig: t.fertig ? isoTag(t.fertig) : undefined, unterricht: /^\d{4}-\d{2}-\d{2}$/.test(isoTag(t.unterricht)) ? isoTag(t.unterricht) : undefined, stichworte: t.stichworte.map(String) })) } };
 }
 
 // Offene Karten einer Board-Spalte, als Nächstes dran: nach Fälligkeit, Karten ohne Datum zuletzt
@@ -999,6 +1140,37 @@ const PRUEFUNG = {
   pom: { datum: '2027-01-15', zeit: '09:00', form: 'hybrid, 75 Minuten: MooPad-Fragen und Fallstudie, danach 15 Minuten TOPSIM-Reflexion', punkte: '70 Punkte Prüfung, 10 Reflexion, 20 TOPSIM-Gruppe', hilfsmittel: 'nur TI-30' },
   kdw: { datum: '2027-01-19', zeit: '14:30', form: 'E-Assessment MC, 60 Minuten (30 % der Note)', punkte: 'Disposition 70 %, Abgabe 20.12.2026 um 23:55', hilfsmittel: '–' },
 };
+
+// Prüfungsangaben eines Moduls: zuerst aus dem eigenen Fahrplan (pruefung, zeit, form, bewertung, hilfsmittel),
+// sonst die Werte oben. So gelten bei jedem Nutzer die Termine aus seinem Vault (16.11.2026).
+function pruefungsInfo(key, plan) {
+  const s = PRUEFUNG[key] || {}, pl = plan || {};
+  const datum = pl.pruefung || s.datum || '';
+  let zeit = pl.zeit != null && pl.zeit !== '' ? pl.zeit : (datum === s.datum ? s.zeit : '');
+  // YAML liest ein unquotiertes 13:30 als Zahl (810 Minuten)
+  if (typeof zeit === 'number') zeit = `${String(Math.floor(zeit / 60)).padStart(2, '0')}:${String(zeit % 60).padStart(2, '0')}`;
+  return { datum, zeit: String(zeit || ''), form: String(pl.form || s.form || ''), punkte: String(pl.bewertung || s.punkte || ''), hilfsmittel: String(pl.hilfsmittel || s.hilfsmittel || ''),
+    strategie: Array.isArray(pl.strategie) ? pl.strategie.map(String) : [] };
+}
+
+// Einen Wert im Kopf des Fahrplan-Blocks setzen (Einstellungen → Prüfungstermine): Zeile „key: …“ ersetzen,
+// sonst nach „pruefung:“ einfügen. Gibt null zurück, wenn die Seite keinen Fahrplan-Block hat.
+function setzePlanWert(text, key, wert) {
+  const m = /(```pruefungsfahrplan\r?\n)([\s\S]*?)(```)/.exec(text);
+  if (!m) return null;
+  const nl = m[1].endsWith('\r\n') ? '\r\n' : '\n';
+  const zeile = `${key}: ${wert}`;
+  const zeilen = m[2].split(/\r?\n/);
+  const themenAb = zeilen.findIndex((z) => /^themen:/.test(z));
+  const kopfEnde = themenAb < 0 ? zeilen.length : themenAb;
+  let nr = zeilen.findIndex((z, i) => i < kopfEnde && new RegExp(`^${key}:`).test(z));
+  if (nr >= 0) zeilen[nr] = zeile;
+  else {
+    nr = zeilen.findIndex((z, i) => i < kopfEnde && /^pruefung:/.test(z));
+    zeilen.splice(nr < 0 ? 0 : nr + 1, 0, zeile);
+  }
+  return text.slice(0, m.index) + m[1] + zeilen.join(nl) + m[3] + text.slice(m.index + m[0].length);
+}
 
 // „Prüfung am Freitag, 22. Januar um 09:00“
 function pruefungsSatz(p) {
@@ -1125,7 +1297,9 @@ function hakeAb(boardText, zeile, heuteISO = null, spalte = null) {
 // Etappe von heute: heute erledigte Lerneinheiten, dann fällige offene in Board-Reihenfolge; die erste offene ist „jetzt“
 // heuteFertig(link): true, wenn das Plugin die Einheit heute abgeschlossen hat. Kanban speichert kein ✅-Datum,
 // darum fiel eine heute erledigte, aber gestern fällige Einheit sonst aus der Etappe (14.11. „Bewertung nach OR“).
-function etappeHeute(board, heuteISO, heuteFertig = () => false) {
+// rang: { schluessel: zahl } aus „Später“/„Vorziehen“ (Wunsch 16.11.), kleiner = früher, Standard 0
+const etappeSchluessel = (p) => p.link || p.text;
+function etappeHeute(board, heuteISO, heuteFertig = () => false, rang = {}) {
   // Seit 15.11.2026: alle heute fälligen Karten, nicht nur Lerneinheiten (z. B. ein Quiz)
   // Überfällige normale Karten nicht (sonst 17 Posten), nur Lerneinheiten dürfen nachhängen.
   const lernt = (k) => k.art === 'lerneinheit' || k.art === 'wiederholen';
@@ -1138,6 +1312,8 @@ function etappeHeute(board, heuteISO, heuteFertig = () => false) {
   }
   // Board-Reihenfolge der Spalten: wie im Kanban von links nach rechts (alphabetisch, übliche Anlage)
   offen.sort((a, b) => MODUL_SPALTEN[a.modul].localeCompare(MODUL_SPALTEN[b.modul], 'de'));
+  const r = (p) => rang[etappeSchluessel(p)] || 0;
+  offen.sort((a, b) => r(a) - r(b));
   if (offen.length) offen[0].status = 'jetzt';
   return [...fertig, ...offen];
 }
@@ -1306,6 +1482,7 @@ const STANDARD = {
   startseite: true,
   leisteZu: true,
   wochenzielMin: 360,
+  wochenzielAb: {},
   name: '',
 };
 const RECHNER = ['TI-30X Plus', 'TI-30X Pro'];
@@ -1336,6 +1513,7 @@ function cfgFuer(modul = 'fa') {
     quizOrdner: 'Module/Financial Accounting', quizDeckel: QUIZ_DECKEL_RECHNEN };
 }
 const PULS_MS = 30_000;
+const ZEIT_TICK_MS = 15_000;
 // Ist Obsidian verdeckt oder minimiert, tickt Chromium nur noch etwa einmal pro Minute. Erst eine Lücke
 // über 5 min heisst wirklich Ruhezustand/Schlaf – sonst ginge Zeit mit Taschenrechner oder Papier verloren.
 const PAUSE_MS = 5 * 60_000;
@@ -1591,6 +1769,32 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
     if (s.text) this.md(el.appendChild(h('div', 'fle-md')), s.text);
   }
 
+  // Früherer Fall direkt eingeblendet: Text, bei aufgedeckten Buchungen auch die Lösung
+  baueBezug(box, si, fall) {
+    const liste = bezuege(this.e.schritte, si, fall);
+    if (!Array.isArray(liste) || !liste.length) return;
+    for (const b of liste) {
+      const ref = box.appendChild(h('div', 'fle-bezug'));
+      const s = this.e.schritte[b.si];
+      const wo = b.si === si ? '' : `${s.titel} · `;
+      if (!b.fall) {
+        ref.appendChild(h('div', 'fle-bezug-titel', `↪ Aus ${s.titel}`));
+        this.md(ref.appendChild(h('div', 'fle-md')), [s.einleitung, s.text].filter(Boolean).join('\n\n'));
+        continue;
+      }
+      ref.appendChild(h('div', 'fle-bezug-titel', `↪ Aus ${wo}${b.fall.id})`));
+      this.md(ref.appendChild(h('div', 'fle-md')), b.fall.text);
+      const key = `${b.si}.${b.fall.id}`;
+      if (Array.isArray(b.fall.loesung) && b.fall.loesung.length && this.z.aufgedeckt.includes(key)) {
+        const tab = ref.appendChild(h('table', 'fle-bezug-loesung'));
+        for (const [soll, haben, betrag] of b.fall.loesung) {
+          const tr = tab.appendChild(h('tr'));
+          tr.appendChild(h('td', '', soll)); tr.appendChild(h('td', '', haben)); tr.appendChild(h('td', 'fle-zahl', betrag == null ? '' : Number(betrag).toLocaleString('de-CH')));
+        }
+      }
+    }
+  }
+
   baueFaelle(el, s, si) {
     if (s.einleitung) this.md(el.appendChild(h('div', 'fle-md fle-einleitung')), s.einleitung);
     for (const fall of s.faelle) {
@@ -1600,6 +1804,7 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
       kopf.appendChild(h('span', 'fle-fall-id', `${fall.id})`));
       if (this.pruefung) kopf.appendChild(h('span', 'fle-fall-punkte', `${fall.punkte} P`));
       this.md(kopf.appendChild(h('div', 'fle-md')), fall.text);
+      if (!this.pruefung) this.baueBezug(box, si, fall);
 
       const z = this.z;
       if (fall.art === 'antwort') { this.baueAntwort(box, fall, key); continue; }
@@ -1817,8 +2022,9 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
         loes.appendChild(h('div', 'fle-label', `Tasten (${CFG.rechner})`));
         loes.appendChild(h('code', 'fle-tasten', tasten));
       }
+      if (fall.warum) this.md(loes.appendChild(h('div', 'fle-md fle-warum')), fall.warum);
     }
-    if (this.pruefung) return;
+    if (this.pruefung || this.e.modul !== 'mathe') return;   // Spick gibt es nur in Mathe
     // Spick-Vermerke: das wichtigste Signal für Änderungen am Spick
     const vermerk = (this.z.spick || {})[key];
     const sp = box.appendChild(h('div', 'fle-spick-vermerk'));
@@ -2032,10 +2238,10 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
 const STATUS_TEXT = { sitzt: 'sitzt', fast: 'fast', wackelig: 'wackelig', offen: 'offen', ueberfaellig: 'überfällig' };
 const DRUCK_TEXT = {
   ruhe: ['Noch nicht dran', 'Für die Themen beginnt die Soll-Kurve erst.'],
-  gut: ['Im Plan', 'Du bist so weit, wie du heute sein solltest.'],
-  knapp: ['Knapp', 'Leicht hinter dem Soll – heute eine Einheit, dann passt es.'],
-  hinten: ['Rückstand', 'Deutlich hinter dem Soll – die roten Themen zuerst.'],
-  alarm: ['Alarm', 'Weit hinter dem Soll – jeden Tag eine Einheit, bis es grün wird.'],
+  gut: ['Im Plan', 'Du bist so weit, wie dein Fahrplan es heute vorsieht.'],
+  knapp: ['Knapp', 'Leicht hinter deinem Fahrplan – heute eine Einheit, dann passt es.'],
+  hinten: ['Rückstand', 'Deutlich hinter deinem Fahrplan – die roten Themen zuerst.'],
+  alarm: ['Alarm', 'Weit hinter deinem Fahrplan – jeden Tag eine Einheit, bis es grün wird.'],
 };
 const kurz = (iso) => { const [, m, d] = iso.split('-'); return `${d}.${m}.`; };
 
@@ -2126,7 +2332,7 @@ class FahrplanAnsicht extends obsidian.MarkdownRenderChild {
     const themen = f ? f.themen : this.plan.themen.map((t) => ({ ...t, status: 'offen', koennen: 0, soll: 0, druck: 'ruhe' }));
     const root = h('div', 'fle fle-plan');
     const cm = cfgFuer(this.plan.modul);
-    const { rest, ist, soll, druck, note, ziel } = fahrplanKennzahlen(themen, this.plan, cm, tag);
+    const { rest, ist, stoff, aufholen, aufgeholtBis, behandelt, stoffThemen, druck, note, ziel } = fahrplanKennzahlen(themen, this.plan, cm, tag);
     const zahlen = [];
 
     // Kopf: drei grosse Zahlen in der Druckfarbe
@@ -2144,12 +2350,28 @@ class FahrplanAnsicht extends obsidian.MarkdownRenderChild {
     zahlen.push([nz, Math.round((note - 1) * 10), '', (v) => komma(1 + v / 10)]);
     nk.appendChild(h('div', 'fle-plan-unter', `Note, wenn heute Prüfung wäre (${ist} %${cm.bonus ? ` + ${String(cm.bonus).replace('.', ',')} Bonuspunkte` : ''})`));
     if (ziel) nk.appendChild(h('div', 'fle-plan-ziel', `Ziel ${komma(ziel)} · ab ${prozentFuerMit(ziel, cm.maxPunkte, cm.bonus)} %`));
-    kachel(soll, ' %', 'solltest du heute können', 'is-soll');
-    const [titel, satz] = DRUCK_TEXT[druck];
+    kachel(stoff, ' %', stoffThemen ? `solltest du heute können (${behandelt} von ${stoffThemen} Themen im Unterricht behandelt)` : 'solltest du heute können', 'is-soll');
+    const [titel, satz] = aufholen
+      ? ['Aufholen', `Hinter dem Unterricht, aber im Zeitplan deines Fahrplans${aufgeholtBis && aufgeholtBis > tag ? ` – aufgeholt bis ${kurz(aufgeholtBis)}` : '.'}`]
+      : DRUCK_TEXT[druck];
     const band = root.appendChild(h('div', `fle-plan-druck is-${druck}`));
     band.appendChild(h('span', 'fle-plan-druck-punkt'));
     band.appendChild(h('strong', null, titel));
     band.appendChild(h('span', 'fle-plan-druck-satz', satz));
+
+    // So läuft die Prüfung dieses Moduls (aus dem Fahrplan: form, bewertung, hilfsmittel, strategie) – eingeklappt
+    const pi = pruefungsInfo(MODUL_KEYS.find((k) => MODUL_INFO[k].modul === this.plan.modul), this.plan);
+    if (pi.strategie.length || this.plan.form) {
+      const det = root.appendChild(h('details', 'fle-plan-pruefung'));
+      det.appendChild(h('summary', null, `So läuft die Prüfung${pi.form ? ` · ${pi.form}` : ''}`));
+      const dl = det.appendChild(h('dl'));
+      for (const [k, v] of [['Bewertung', pi.punkte], ['Hilfsmittel', pi.hilfsmittel]]) if (v) { dl.appendChild(h('dt', null, k)); dl.appendChild(h('dd', null, v)); }
+      if (pi.strategie.length) {
+        det.appendChild(h('div', 'fle-plan-pruefung-h', 'So holst du die Punkte'));
+        const ul = det.appendChild(h('ul'));
+        pi.strategie.forEach((s) => ul.appendChild(h('li', null, s)));
+      }
+    }
 
     // Spick einfrieren (Mathe): ab dann nur noch mit dem handgeschriebenen Blatt üben
     if (this.plan.spick_frieren) {
@@ -2226,32 +2448,32 @@ class FahrplanAnsicht extends obsidian.MarkdownRenderChild {
       const teilThemen = themen.filter((x) => (x.teil || '') === teil);
       const hk = themenZiel.appendChild(h('div', 'fle-plan-hkopf'));
       hk.appendChild(h('h4', 'fle-plan-h', teil || 'Themen'));
-      const zurueck = teilThemen.filter((t) => t.koennen < t.soll).length;
+      const zurueck = teilThemen.filter((t) => t.koennen < t.stoff).length;
       hk.appendChild(h('span', 'fle-leise', zurueck ? `${zurueck} von ${teilThemen.length} hinter dem Soll` : `${teilThemen.length} Themen`));
       const tab = themenZiel.appendChild(h('table', 'fle-plan-tab'));
       // Feste Spalten, damit Teil A, Teil B und Gesamt bündig untereinander stehen
       const cg = tab.appendChild(h('colgroup'));
       for (const c of ['thema', 'stichtag', 'koennen', 'status', 'wieder']) cg.appendChild(h('col', `is-${c}`));
       const kopfzeile = tab.appendChild(h('thead')).appendChild(h('tr'));
-      for (const s of ['Thema', 'Stichtag', 'Können · Soll-Strich', 'Stand', 'Wieder']) kopfzeile.appendChild(h('th', null, s));
+      for (const s of ['Thema', 'Geplant bis', 'Können · Soll-Strich', 'Stand', 'Wieder']) kopfzeile.appendChild(h('th', null, s));
       const tb = tab.appendChild(h('tbody'));
       for (const t of teilThemen) {
         const tr = tb.appendChild(h('tr', `is-${t.druck}`));
         tr.appendChild(h('td', 'fle-plan-thema', t.thema));
         tr.appendChild(h('td', 'fle-plan-datum', kurz(t.stichtag)));
         const zelle = tr.appendChild(h('td')).appendChild(h('div', 'fle-plan-koennen'));
-        if (t.soll <= 0 && t.koennen <= 0) {
+        if (t.stoff <= 0 && t.koennen <= 0) {
           // Noch nicht dran: kein „0 % / 0“-Rauschen
-          zelle.appendChild(h('span', 'fle-plan-spaeter', `ab ${kurz(plusTage(t.stichtag, -SOLL.vorlauf))}`));
+          zelle.appendChild(h('span', 'fle-plan-spaeter', t.unterricht ? `im Unterricht am ${kurz(t.unterricht)}` : `soll sitzen bis ${kurz(t.stichtag)}`));
         } else {
           const zahl = zelle.appendChild(h('span', 'fle-plan-prozent'));
           zahlen.push([zahl, t.koennen, ' %']);
           const spur = zelle.appendChild(h('div', 'fle-plan-spur'));
           const fuell = spur.appendChild(h('div', 'fle-plan-fuell'));
           const marke = spur.appendChild(h('div', 'fle-plan-marke'));
-          marke.style.left = `${t.soll}%`;
+          marke.style.left = `${t.stoff}%`;
           fuell.dataset.ziel = t.koennen;
-          zelle.title = `Können ${t.koennen} %, Soll heute ${t.soll} %`;
+          zelle.title = `Können ${t.koennen} %, Soll heute ${t.stoff} %${t.unterricht ? ` (Unterricht ${kurz(t.unterricht)})` : ''} · geplant bis ${kurz(t.stichtag)}`;
         }
         tr.appendChild(h('td')).appendChild(h('span', `fle-plan-status is-${t.status}`, STATUS_TEXT[t.status]));
         tr.appendChild(h('td', 'fle-plan-datum', t.wieder ? kurz(t.wieder) : '–'));
@@ -2591,7 +2813,7 @@ class LernzentraleAnsicht extends obsidian.ItemView {
     const board = leseBoard(boardText, tag, (link) => { const fm = this.fm(link); return !!fm && fm.lerneinheit === true; });
     const neu = {};
     for (const k of ['ob', 'pom', 'kdw']) neu[k] = leseFortschritt((await this.lies(NEUE_MODULE[k].fortschritt)) || '');
-    const proTag = lernMinuten({ fa, ma, ...neu }, quiz);
+    const proTag = mischeZeit(lernMinuten({ fa, ma, ...neu }, quiz), this.plugin.daten && this.plugin.daten.zeit);
     const plaene = {};
     for (const key of MODUL_KEYS) {
       const f = await this.plugin.ladeFahrplan(MODUL_INFO[key].modul);
@@ -2601,7 +2823,8 @@ class LernzentraleAnsicht extends obsidian.ItemView {
     const heuteFertig = new Set(Object.values((this.plugin.daten && this.plugin.daten.einheiten) || {})
       .filter((z) => z && z.abgeschlossen === tag && z.datei)
       .map((z) => z.datei.split('/').pop().replace(/\.md$/, '')));
-    const etappe = etappeHeute(board, tag, (link) => !!link && heuteFertig.has(String(link).split('/').pop().replace(/\.md$/, ''))).map((p0) => {
+    const eo = (this.plugin.daten && this.plugin.daten.etappeRang) || {};
+    const etappe = etappeHeute(board, tag, (link) => !!link && heuteFertig.has(String(link).split('/').pop().replace(/\.md$/, '')), eo.tag === tag ? eo.rang || {} : {}).map((p0) => {
       let p = p0;
       const fm = p.link ? this.fm(p.link) : null;
       // Erledigte Karten stehen in „Erledigt“ ohne Spalte: Modul aus dem Frontmatter der Lerneinheit
@@ -2638,7 +2861,7 @@ class LernzentraleAnsicht extends obsidian.ItemView {
     const pruefungen = module.filter((m) => m.plan).map((m) => ({ kurz: m.kurz, tage: m.k.rest })).sort((a, b) => a.tage - b.tage);
     return {
       tag, fa, ma, quiz, proTag, board, etappe, gelerntHeute, geplant, ziel, woche, module, serie: s,
-      tagesziel: tagesziel(summeMin(gelerntHeute), geplant, Number(CFG.wochenzielMin) || 360, bisGestern, tag),
+      tagesziel: tagesziel(summeMin(gelerntHeute), geplant, wochenzielFuer(tag, CFG), bisGestern, tag),
       naechste: pruefungen[0] || null,
       fakten: fakten({ proTag, faZeilen: fa, maZeilen: ma, serie: s }, tag),
       leer: !Object.keys(plaene).length && !proTag.size,
@@ -2858,8 +3081,9 @@ class LernzentraleAnsicht extends obsidian.ItemView {
 
   // ── Modulseite ──
   baueModulseite(seite, key, d) {
-    const m = MODUL_INFO[key], p = PRUEFUNG[key];
+    const m = MODUL_INFO[key];
     const plan = (d.module.find((x) => x.key === key) || {}).plan;
+    const p = pruefungsInfo(key, plan && plan.plan);
     const kopf = seite.appendChild(h('div', 'flz-mkopf'));
     const links = kopf.appendChild(h('div', 'flz-mkopf-links'));
     links.innerHTML = `<h1 class="flz-gruss flz-mtitel"><i style="background:${m.farbe}"></i>${escHtml(m.name)}</h1>`;
@@ -3040,6 +3264,15 @@ class LernzentraleAnsicht extends obsidian.ItemView {
         const b = t.appendChild(h('button', 'flz-btn is-cta'));
         b.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>Starten';
         b.onclick = () => this.oeffne(p.link);
+        if (d.etappe.some((q) => q.status === 'offen')) {
+          const sp = t.appendChild(h('button', 'flz-btn flz-s-schieb', 'Später'));
+          sp.title = 'Diesen Posten ans Ende schieben';
+          sp.onclick = () => this.verschiebe(d, p, +1);
+        }
+      } else if (p.status === 'offen') {
+        const vz = t.appendChild(h('button', 'flz-btn flz-s-schieb is-hover', 'Jetzt machen'));
+        vz.title = 'Diesen Posten vorziehen';
+        vz.onclick = () => this.verschiebe(d, p, -1);
       }
     });
     const geschafft = fertig === d.etappe.length;
@@ -3067,6 +3300,17 @@ class LernzentraleAnsicht extends obsidian.ItemView {
     }
   }
 
+  // Später (+1) = ans Ende, Vorziehen (-1) = an den Anfang; gilt nur heute
+  async verschiebe(d, p, richtung) {
+    const daten = this.plugin.daten || (this.plugin.daten = {});
+    if (!daten.etappeRang || daten.etappeRang.tag !== d.tag) daten.etappeRang = { tag: d.tag, rang: {} };
+    const rang = daten.etappeRang.rang;
+    const werte = d.etappe.filter((q) => q.status !== 'fertig').map((q) => rang[etappeSchluessel(q)] || 0);
+    rang[etappeSchluessel(p)] = richtung > 0 ? Math.max(0, ...werte) + 1 : Math.min(0, ...werte) - 1;
+    await this.plugin.saveData(daten);
+    await this.neuLaden();
+  }
+
   baueWoche(seite, d) {
     const sec = seite.appendChild(h('section', 'flz-abschnitt flz-rein'));
     sec.id = 'flz-woche';
@@ -3089,11 +3333,11 @@ class LernzentraleAnsicht extends obsidian.ItemView {
     leg.innerHTML = MODUL_KEYS.filter((k) => summenModul[k]).map((k) => `<span><i style="background:${MODUL_INFO[k].farbe}"></i>${MODUL_INFO[k].kurz}</span>`).join('') + '<span><i class="is-vor"></i>Vorwoche</span>';
     const tafel = sec.querySelector('.flz-tafel');
     const wocheTafel = () => {
-      const summe = w.tage.reduce((s, t) => s + t.summe, 0), wz = Number(CFG.wochenzielMin) || 360;
+      const summe = w.tage.reduce((s, t) => s + t.summe, 0), wz = wochenzielFuer(w.tage[0].iso, CFG);
       const zeilen = MODUL_KEYS.filter((k) => summenModul[k]).sort((a, b) => summenModul[b] - summenModul[a])
         .map((k) => `<div class="flz-zl"><i style="background:${MODUL_INFO[k].farbe}"></i>${MODUL_INFO[k].name}<b>${summenModul[k]} min</b><span class="flz-zl-bar"><u style="width:${summenModul[k] / Math.max(1, summe) * 100}%;background:${MODUL_INFO[k].farbe}"></u></span></div>`).join('');
       tafel.innerHTML = `<span class="flz-t"><span>${this.wocheVersatz ? 'Ganze Woche' : 'Woche bis heute'}</span><span>Ziel ${fmtMin(wz)} · ${Math.round(summe / wz * 100)} %</span></span>
-        <span class="flz-gz">${fmtMin(summe)}</span><div class="flz-zeilen">${zeilen || '<p class="flz-leise">Lernzeit erscheint hier, sobald du eine Lerneinheit mit Timer machst.</p>'}</div>
+        <span class="flz-gz">${fmtMin(summe)}</span><div class="flz-zeilen">${zeilen || '<p class="flz-leise">Lernzeit erscheint hier, sobald du in einem Modul lernst – sie wird automatisch gemessen.</p>'}</div>
         <div class="flz-fuss">Vorwoche bis ${vorTag}: <b>${fmtMin(w.vorBisHeute)}</b></div>`;
     };
     const tagTafel = (t) => {
@@ -3159,7 +3403,9 @@ class LernzentraleAnsicht extends obsidian.ItemView {
     const hinten = d.module.filter((m) => m.k && (m.k.druck === 'alarm' || m.k.druck === 'hinten'));
     const mitPlan = d.module.filter((m) => m.k);
     sec.innerHTML = `<div class="flz-a-kopf"><div><h2>Wo stehe ich?</h2><p class="flz-antwort">${mitPlan.length
-      ? `<b>${hinten.length} von ${mitPlan.length}</b> Modulen mit Fahrplan hinter dem Soll${hinten.length ? ': ' + hinten.map((m) => m.kurz).join(', ') : ''}`
+      ? (!hinten.length && mitPlan.some((m) => m.k.aufholen)
+        ? `<b>${mitPlan.filter((m) => m.k.aufholen).length} von ${mitPlan.length}</b> Modulen hinter dem Unterricht, aber im Zeitplan des eigenen Fahrplans`
+        : `<b>${hinten.length} von ${mitPlan.length}</b> Modulen hinter dem eigenen Fahrplan${hinten.length ? ': ' + hinten.map((m) => m.kurz).join(', ') : ''}`)
       : 'Noch kein Modul mit Fahrplan.'}</p></div><span class="flz-leise">Ring = Können · Strich = Soll heute</span></div>`;
     if (!mitPlan.length) {
       sec.appendChild(h('div', 'flz-leer-box')).innerHTML = '<b>Noch kein Prüfungsfahrplan</b><p>Leg für ein Modul Prüfungsdatum und Themen fest. Dann siehst du hier, wie viel du schon kannst und wie viel du bis heute können solltest.</p>';
@@ -3188,12 +3434,12 @@ class LernzentraleAnsicht extends obsidian.ItemView {
       const druck = m.k ? m.k.druck : 'ruhe';
       const b = reihe.appendChild(h('button', `flz-mk is-${druck}`));
       b.setAttribute('aria-pressed', String(m.key === this.modulWahl));
-      b.setAttribute('aria-label', m.k ? `${m.name}: ${m.k.ist} Prozent, Soll ${m.k.soll}` : `${m.name}: noch kein Fahrplan`);
-      const a = m.k ? (m.k.soll / 100) * 2 * Math.PI - Math.PI / 2 : 0;
+      b.setAttribute('aria-label', m.k ? `${m.name}: ${m.k.ist} Prozent, Soll ${m.k.stoff}` : `${m.name}: noch kein Fahrplan`);
+      const a = m.k ? (m.k.stoff / 100) * 2 * Math.PI - Math.PI / 2 : 0;
       b.innerHTML = `<span class="flz-mk-name"><i style="background:${m.farbe}"></i>${escHtml(m.name)}</span>
         <span class="flz-mk-mitte"><svg class="flz-mk-ring" viewBox="0 0 50 50" aria-hidden="true"><circle cx="25" cy="25" r="${R}" class="flz-mk-spur"/>${m.k ? `<circle class="flz-mk-ist" cx="25" cy="25" r="${R}" stroke-dasharray="${U}" stroke-dashoffset="${U}" data-ziel="${U * (1 - m.k.ist / 100)}" transform="rotate(-90 25 25)"/>` : ''}${m.k && m.k.soll ? `<line class="flz-mk-soll" x1="${25 + (R - 6) * Math.cos(a)}" y1="${25 + (R - 6) * Math.sin(a)}" x2="${25 + (R + 6) * Math.cos(a)}" y2="${25 + (R + 6) * Math.sin(a)}"/>` : ''}</svg>
-        <span><span class="flz-mk-wert">${m.k ? m.k.ist + ' %' : '–'}</span><span class="flz-mk-soll-txt">${m.k ? `Soll ${m.k.soll} %` : 'kein Fahrplan'}</span></span></span>
-        <span class="flz-stand">${icon(STAND_ICON[druck])}${STAND_WORT[druck]}</span>`;
+        <span><span class="flz-mk-wert">${m.k ? m.k.ist + ' %' : '–'}</span><span class="flz-mk-soll-txt">${m.k ? `Soll ${m.k.stoff} %` : 'kein Fahrplan'}</span></span></span>
+        <span class="flz-stand">${icon(STAND_ICON[druck])}${m.k && m.k.aufholen ? 'aufholen' : STAND_WORT[druck]}</span>`;
       const wahl = () => { this.modulWahl = m.key; reihe.querySelectorAll('.flz-mk').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); zeigePanel(m); };
       b.addEventListener('mouseenter', wahl); b.addEventListener('focus', wahl); b.addEventListener('click', wahl);
     });
@@ -3334,6 +3580,26 @@ class Einstellungen extends obsidian.PluginSettingTab {
     feld('spalte', 'Spalte im Board', 'Überschrift der Spalte (ohne ##), in die Wiederholen-Karten kommen.');
     feld('fortschritt', 'Fortschrittsnotiz', 'Pfad der Notiz mit der Tabelle Datum | Thema | Stufe | Material | Einschätzung.');
     feld('kontenplanPdf', 'Kontenplan-PDF', 'Dateiname des PDFs, das der Kontenplan-Knopf öffnet.');
+    // Prüfungstermine: jeder Nutzer trägt seine eigenen ein, sie landen im Fahrplan des Moduls
+    el.createEl('h3', { text: 'Prüfungstermine' });
+    el.createEl('p', { cls: 'setting-item-description', text: 'Deine Termine laut Prüfungsplan. Sie stehen im Prüfungsfahrplan des Moduls; Abgaben und Stichtage der Themen änderst du direkt dort.' });
+    for (const key of MODUL_KEYS) {
+      const c = cfgFuer(MODUL_INFO[key].modul);
+      const f = this.app.metadataCache.getFirstLinkpathDest(c.fahrplan, '');
+      const zeile = new obsidian.Setting(el).setName(MODUL_INFO[key].name);
+      if (!(f instanceof obsidian.TFile)) { zeile.setDesc(`Noch keine Seite „${c.fahrplan}“ im Vault.`); continue; }
+      const schreibe = async (k, wert) => {
+        try { await this.app.vault.process(f, (t) => setzePlanWert(t, k, wert) || t); } catch (err) { new obsidian.Notice(`Fahrplan nicht gespeichert: ${err.message}`); }
+      };
+      this.app.vault.cachedRead(f).then((text) => {
+        const kopf = (/```pruefungsfahrplan\r?\n([\s\S]*?)```/.exec(text) || [])[1] || '';
+        const wert = (k) => ((new RegExp(`^${k}:\\s*["']?([^"'#\\r\\n]*)`, 'm').exec(kopf) || [])[1] || '').trim();
+        zeile.setDesc(`Datum und Uhrzeit · ${f.path}`);
+        zeile.addText((t) => { t.inputEl.type = 'date'; t.setValue(wert('pruefung')).onChange((v) => { if (/^\d{4}-\d{2}-\d{2}$/.test(v)) schreibe('pruefung', v); }); });
+        zeile.addText((t) => { t.inputEl.type = 'time'; t.setValue(wert('zeit')).onChange((v) => { if (/^\d{2}:\d{2}$/.test(v)) schreibe('zeit', `"${v}"`); }); });
+        zeile.addExtraButton((b) => b.setIcon('pencil').setTooltip('Fahrplan öffnen').onClick(() => this.app.workspace.getLeaf(false).openFile(f)));
+      });
+    }
     el.createEl('h3', { text: 'Lernzentrale' });
     const speichere = async () => { this.plugin.daten.einstellungen = { ...CFG }; await this.plugin.saveData(this.plugin.daten); };
     new obsidian.Setting(el).setName('Beim Start öffnen').setDesc('Die Lernzentrale erscheint, wenn Obsidian startet.')
@@ -3452,6 +3718,63 @@ class FaLerneinheit extends obsidian.Plugin {
     this.uhrLeiste.addClass('fle-uhrleiste');
     this.zeigeUhr();
     this.registerInterval(window.setInterval(() => this.uhrTick(), 1000));
+
+    // Automatische Lernzeit: alle 15 s dem Modul gutschreiben, an dem gerade gelernt wird
+    if (!this.daten.zeit) this.daten.zeit = {};
+    this.letzteAktivitaet = Date.now();
+    this.letzterZeitTick = Date.now();
+    this.zeitStand = { offen: {}, letzte: Date.now() };
+    for (const art of ['pointerdown', 'pointermove', 'keydown', 'wheel', 'scroll']) this.registerDomEvent(document, art, () => { this.letzteAktivitaet = Date.now(); }, { capture: true, passive: true });
+    this.registerInterval(window.setInterval(() => this.zeitTick(), ZEIT_TICK_MS));
+    // Neu gemessene Zeit zeigt die Lernzentrale, sobald man zu ihr wechselt (kein Neuzeichnen während des Lesens)
+    this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => {
+      if (leaf && leaf.view && leaf.view.getViewType && leaf.view.getViewType() === VIEW_LZ && leaf.view.daten) leaf.view.neuLaden();
+    }));
+  }
+
+  // Woran wird gerade gelernt? Aufgaben-Uhr vor laufendem Lerneinheit-Timer vor offener Datei/Modulseite mit Aktivität.
+  aktuellesModul(jetzt) {
+    const u = this.daten.freiUhr;
+    if (u && u.seit != null && MODUL_KEYS.includes(u.modul)) return u.modul;
+    for (const a of this.aktive || []) {
+      const z = this.daten.einheiten[a.e.id];
+      if (z && z.laeuft) return a.e.modul === 'mathe' ? 'ma' : modulAusPfad('', a.e.modul || 'fa');
+    }
+    const leaf = this.app.workspace.getMostRecentLeaf ? this.app.workspace.getMostRecentLeaf() : null;
+    const v = leaf && leaf.view;
+    if (v && v.getViewType && v.getViewType() === VIEW_LZ) return MODUL_INFO[v.seite] ? v.seite : null;
+    const f = v && v.file;
+    if (!f) return null;
+    const fm = (this.app.metadataCache.getFileCache(f) || {}).frontmatter || {};
+    return modulAusPfad(f.path, fm.modul);
+  }
+
+  zeitTick() {
+    const jetzt = Date.now();
+    // Nach Schlaf/Ruhezustand nicht die ganze Lücke zählen
+    const sek = Math.min(Math.round((jetzt - this.letzterZeitTick) / 1000), 2 * ZEIT_TICK_MS / 1000);
+    this.letzterZeitTick = jetzt;
+    const k = this.aktuellesModul(jetzt);
+    const u = this.daten.freiUhr;
+    // Aufgaben-Uhr läuft (Papier, Taschenrechner, Video im Browser): zählt sicher, sie hat ihre eigene Pause
+    if (u && u.seit != null && k === u.modul) {
+      if (sek > 0) { zeitDazu(this.daten.zeit, heute(), k, sek); this.speichere(); }
+      return;
+    }
+    const aktiv = this.letzteAktivitaet > jetzt - sek * 1000;
+    const r = zeitSchritt(this.zeitStand, { jetzt, sek, modul: k, aktiv, schaut: this.schautVideo() });
+    this.zeitStand = r.st;
+    let neu = false;
+    for (const [m, s] of Object.entries(r.gut)) { zeitDazu(this.daten.zeit, heute(), m, s); neu = true; }
+    if (neu) this.speichere();
+  }
+
+  // Video läuft: ein eigenes <video> spielt, oder der Fokus steckt in einem eingebetteten Player (YouTube-iframe).
+  // Klicks im iframe sieht Obsidian nicht, deshalb zählt der Fokus dort als „schaut“.
+  schautVideo() {
+    if ([...document.querySelectorAll('video')].some((v) => !v.paused && !v.ended)) return true;
+    const a = document.activeElement;
+    return !!a && a.tagName === 'IFRAME';
   }
 
   // ── Aufgaben-Uhr ──
@@ -3645,7 +3968,7 @@ class FaLerneinheit extends obsidian.Plugin {
       liste = quizListe(quiz, c.quizOrdner);
     }
     return { plan: r.plan, themen: r.plan.themen.map((t) => {
-      const st = themaStatus(t, zeilen, tag, r.plan.pruefung);
+      const st = themaStatus(t, zeilen, tag, r.plan.pruefung, niveauAus(r.plan));
       return { ...t, ...(liste ? themaMitQuiz(t, st, liste, tag, c.quizDeckel) : st) };
     }) };
   }
@@ -3655,7 +3978,9 @@ class FaLerneinheit extends obsidian.Plugin {
     const board = this.app.vault.getAbstractFileByPath(CFG.board);
     if (!(board instanceof obsidian.TFile)) return;
     const gemacht = this.daten.wiederholt || (this.daten.wiederholt = {});
-    const tag = heute();
+    // Einen Tag Vorlauf (15.11.2026): Karte erscheint schon am Vortag, damit die Routine (06:30/12:30)
+    // die Einheit vor dem Fälligkeitstag baut. Vorher kam die Karte oft nach dem letzten Lauf → „morgen ab 06:30“.
+    const tag = plusTage(heute(), 1);
     const auftraege = [];
     for (const modul of MODULE) {
       const f = await this.ladeFahrplan(modul);
@@ -3756,7 +4081,7 @@ class FaLerneinheit extends obsidian.Plugin {
 }
 
 module.exports = FaLerneinheit;
-module.exports.logik = { auswahlWahl, bewerteKprim, bewerteAuswahl, kprimWahl, videosFuer, ERKLAERVIDEOS, folgtHinweis, kw,unterlagenGruppen, wiederholKarte, quizListe, themaMitQuiz, NEUE_MODULE, tafelSpalte, hakeAb, naechsteSiebenMitRest, UNTERLAGEN, PRUEFUNG, pruefungsSatz, modulDateien, letzteRunde, naechsteSieben, erledigtListe, fakten, fahrplanKennzahlen, hochrechnung, leseBoard, etappeHeute, lernMinuten, wocheVon, serie, tagesziel, MODUL_SPALTEN, pruefTempo, bewerteBuchung, prozentFuerMit, uebernahmeAblauf, istVorschlagSeite, pdfSeiten, pruefeSpick, spickAenderungen, uebernimmVorschlag, spickHtml, SPICK_MAX_ZEICHEN, noteMit, naechsteTodos, matheZeilen, cfgFuer, MODULE, leseZahl, leseZahlen, pruefeZahl, pruefeMenge, pruefeEinheit, KONTENPLAN, EINSCHAETZUNGEN, istKonto,
+module.exports.logik = { bezuege, zeitSchritt, modulAusPfad, zeitDazu, mischeZeit, wochenzielFuer, auswahlWahl, bewerteKprim, bewerteAuswahl, kprimWahl, videosFuer, ERKLAERVIDEOS, folgtHinweis, kw,unterlagenGruppen, wiederholKarte, quizListe, themaMitQuiz, NEUE_MODULE, tafelSpalte, hakeAb, naechsteSiebenMitRest, UNTERLAGEN, PRUEFUNG, pruefungsSatz, modulDateien, letzteRunde, naechsteSieben, erledigtListe, fakten, fahrplanKennzahlen, hochrechnung, leseBoard, etappeHeute, lernMinuten, wocheVon, serie, tagesziel, MODUL_SPALTEN, pruefTempo, bewerteBuchung, prozentFuerMit, uebernahmeAblauf, istVorschlagSeite, pdfSeiten, pruefeSpick, spickAenderungen, uebernimmVorschlag, spickHtml, SPICK_MAX_ZEICHEN, noteMit, naechsteTodos, matheZeilen, cfgFuer, MODULE, leseZahl, leseZahlen, pruefeZahl, pruefeMenge, pruefeEinheit, KONTENPLAN, EINSCHAETZUNGEN, istKonto,
   neuerZustand, starte, stoppeLaufenden, istWackelig, MAX_LAUF_S, stoppeNachAbsturz, nachPause, fallSekunden, matheEinheitZeile, uhrSek, uhrPause, setzeZeit,
   hakeKarteAb, fortschrittZeile, setzeFortschritt, pruefungsErgebnis, restSekunden, freischaltung, normKonto, leseBetrag, pruefeBuchung, trefferQuote,
-  leseFortschritt, punkteZeile, themaStatus, sollAm, druckStufe, noteAus, prozentFuer, statusAus, pruefeFahrplan, setzeWiederholung, tageBis };
+  leseFortschritt, punkteZeile, themaStatus, sollAm, sollStoff, unterrichtVon, niveauAus, druckStufe, noteAus, pruefungsInfo, setzePlanWert, prozentFuer, statusAus, pruefeFahrplan, setzeWiederholung, tageBis };

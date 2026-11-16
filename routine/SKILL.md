@@ -184,6 +184,8 @@ Status je Thema rechnet das Plugin selbst — dieselbe Logik:
 Können in Prozent aus den letzten drei Einschätzungen (leicht 100, mittel 60, schwer 25, nicht
 verstanden 0; zu lange = schwer; neueste zählt am meisten). Höchstens 50 % nach einer Einschätzung,
 75 % nach zwei. Ausgabe: `Können/Soll | Druck | Status | Stichtag | Wieder | Thema`.
+
+**Zwei Soll-Werte (seit 0.6.0).** `soll` ist der eigene Zeitplan (aus `stichtag`). `stoff` ist, was man nach dem Unterricht können sollte (aus `unterricht:` je Thema: eine Woche nach dem Unterricht 80 %, bis 90 % vor der Prüfung); das zeigt die Lernzentrale als „solltest du heute können“. `themaStatus` liefert beides plus `behandelt`. Für die Reihenfolge der FA- und Mathe-Einheiten gilt weiter `soll`, im Bericht beide Zahlen nennen. Nie ein Thema, dessen `unterricht:` in der Zukunft liegt.
 Druck: `ruhe` / `gut` / `knapp` / `hinten` / `alarm`. Status: `sitzt` (ab 80 %) / `fast` (ab 50 %) /
 `wackelig` / `offen` / `ueberfaellig` (Stichtag vorbei, nie geübt).
 

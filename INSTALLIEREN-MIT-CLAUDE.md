@@ -48,7 +48,16 @@ Ohne diese Seiten zeigt die Lernzentrale bei den Modulen nur „Noch kein Prüfu
    und leere Fortschrittsnotizen (`Support/Fortschritt ….md`).
 2. Jede Datei an denselben Pfad im Vault kopieren, **aber nur, wenn es sie dort noch nicht gibt**
    (per Name im ganzen Vault suchen, das Plugin findet Fahrpläne per Name). Bestehende Dateien nie überschreiben.
-3. Die Termine gelten für HS26, Klasse TZT26a. Andere Klasse: Prüfungsdatum und Stichtage mit der Person abgleichen.
+3. Die Termine gelten für HS26, Klasse TZT26a. **Die Person nach ihren eigenen Terminen fragen** (Prüfungsplan,
+   Abgaben, Probeprüfungen). Prüfungsdatum und Uhrzeit trägt man in Obsidian unter Einstellungen → FA-Lerneinheit →
+   „Prüfungstermine“ ein (landet als `pruefung:` und `zeit:` im Fahrplan). Abweichende Unterrichts- oder Abgabetermine
+   direkt im Fahrplan ändern: `unterricht:` = wann das Thema im Unterricht dran war (daraus rechnet das Plugin
+   „solltest du heute können“), `stichtag:` = bis wann es nach dem eigenen Plan sitzen soll.
+3a. **Update von einer älteren Version (vor 0.6.0):** Gibt es die Fahrpläne schon, nichts überschreiben. Stattdessen aus
+   der Vorlage ergänzen, was fehlt: die Kopfzeilen `zeit`, `form`, `bewertung`, `hilfsmittel`, `strategie`, pro Thema
+   `unterricht:` und die neuen Themen (OB „Prüfungstraining“, PoM „Fallstudie von Hand“ und „Final Pitch“, KDW
+   „Ganze MC-Prüfung auf Zeit“). Stichtage, `fertig:` und eigene Änderungen der Person bleiben stehen. `zeit` immer in
+   Anführungszeichen schreiben (`zeit: "13:30"`).
 4. Im KDW-Fahrplan fragen, welche Meilensteine der Disposition schon erledigt sind, und dort `fertig: JJJJ-MM-TT` ergänzen.
 5. In den Einstellungen von FA-Lerneinheit prüfen, ob die Pfade der Fortschrittsnotizen passen.
 

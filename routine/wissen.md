@@ -20,10 +20,20 @@ einer Lerneinheit.
 - **Eine Lerneinheit pro Modul und Woche**, also drei. Sie kommen zu den FA-, Mathe- und Quiz-Plänen
   dazu und dauern **20–25 Min**. Sie dürfen auf einen Tag mit anderer Einheit fallen, aber nie zwei
   Wissens-Einheiten am selben Tag.
-- **Welches Thema:** aus dem Fahrplan das Thema mit dem **grössten Rückstand** (Soll minus Können)
-  unter den Themen, deren Stoff im Unterricht schon behandelt wurde (Stichtag vorbei oder Theorienotiz
-  vorhanden). Den Stand rechnet die Routine wie das Plugin: `require('<ROUTINE>/logik.js')('<VAULT>/.obsidian/plugins/fa-lerneinheit')`,
-  dann `themaStatus` und `themaMitQuiz` mit `quizListe(data, 'Module/<Modul>')` und dem heutigen Tag.
+- **Welches Thema:** aus dem Fahrplan das Thema mit dem **grössten Rückstand zum Unterricht**
+  (`stoff` minus `koennen`) unter den Themen, die im Unterricht schon dran waren (`behandelt: true`,
+  das heisst `unterricht:` im Fahrplan liegt nicht in der Zukunft; ohne `unterricht:` gilt eine Woche
+  vor dem `stichtag`). Bei Gleichstand das mit dem früheren `stichtag`. `soll` ist der eigene Zeitplan
+  aus den Stichtagen, `stoff` das, was man nach dem Unterricht können sollte. Den Stand rechnet die
+  Routine wie das Plugin: `require('<ROUTINE>/logik.js')('<VAULT>/.obsidian/plugins/fa-lerneinheit')`,
+  dann `themaStatus(t, zeilen, heute, plan.pruefung, niveauAus(plan))` und `themaMitQuiz` mit
+  `quizListe(data, 'Module/<Modul>')` und dem heutigen Tag.
+- **Themen ohne `unterricht:`** (Teil „Prüfungstraining“, „Fallstudie von Hand“, „Prüfung auf Zeit“) sind
+  erst dran, wenn ihr `stichtag` höchstens 14 Tage entfernt ist. OB „Kprim und A+ trainieren“: Fragen im
+  Stil der offiziellen Prüfungsfragen aus den Unterlagen. PoM „Fallstudie: …“: Mini-Fälle aus den
+  Lernzielen und Übungen der Foliensätze, `thema` mit dem Stichwort aus dem Fahrplan (z. B.
+  „Fallstudie Strategie“). Meilensteine wie „Probeprüfung II im Unterricht“, „Final Pitch“ und die
+  Dispo-Schritte sind keine Lerneinheiten.
 - **KDW:** nur Themen aus dem Teil „MC-Test“. Die Dispo-Meilensteine sind keine Lerneinheiten.
   Ist ein Meilenstein in 7 Tagen fällig und noch nicht `fertig`, kommt stattdessen eine schlichte
   Karte `- [ ] Dispo: <Meilenstein> @{<Stichtag>}` in die Spalte Kritisches Denken (einmal, keine
