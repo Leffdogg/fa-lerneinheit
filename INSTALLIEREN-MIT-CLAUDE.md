@@ -40,6 +40,18 @@ Sprich Deutsch, einfach und kurz. Frag nach, bevor du etwas überschreibst, lös
    Dateien im Vault suchst und die Werte nennst.
 
 
+### 1b. Prüfungsfahrpläne für Mathe, OB, PoM und KDW
+
+Ohne diese Seiten zeigt die Lernzentrale bei den Modulen nur „Noch kein Prüfungsfahrplan“.
+
+1. Den Ordner `vorlagen/` aus dem Repo holen. Er enthält vier Fahrpläne (`Module/<Modul>/Prüfungsfahrplan ….md`)
+   und leere Fortschrittsnotizen (`Support/Fortschritt ….md`).
+2. Jede Datei an denselben Pfad im Vault kopieren, **aber nur, wenn es sie dort noch nicht gibt**
+   (per Name im ganzen Vault suchen, das Plugin findet Fahrpläne per Name). Bestehende Dateien nie überschreiben.
+3. Die Termine gelten für HS26, Klasse TZT26a. Andere Klasse: Prüfungsdatum und Stichtage mit der Person abgleichen.
+4. Im KDW-Fahrplan fragen, welche Meilensteine der Disposition schon erledigt sind, und dort `fertig: JJJJ-MM-TT` ergänzen.
+5. In den Einstellungen von FA-Lerneinheit prüfen, ob die Pfade der Fortschrittsnotizen passen.
+
 ### 2. Lernplan-Routine
 
 1. Den Ordner `routine/` aus dem Repo holen und `routine/EINRICHTEN.md` lesen.
