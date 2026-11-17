@@ -3291,9 +3291,9 @@ class LernzentraleAnsicht extends obsidian.ItemView {
     ring.setAttribute('aria-label', `Heute ${gelernt} von ${d.tagesziel} Minuten gelernt`);
     const teile = MODUL_KEYS.filter((k) => d.gelerntHeute[k] > 0);
     ring.innerHTML = `<div class="flz-ring-flaeche"><svg viewBox="0 0 144 144" aria-hidden="true"></svg>
-      <div class="flz-ring-mitte"><div class="flz-ring-normal"><div class="flz-ring-zahl"><span data-zaehl="${gelernt}">${gelernt}</span><small>von ${d.tagesziel} min</small></div></div>
-      <div class="flz-ring-detail">${teile.map((k) => `<div><i style="background:${MODUL_INFO[k].farbe}"></i>${MODUL_INFO[k].kurz} ${d.gelerntHeute[k]} min</div>`).join('')}<div><i class="is-rest"></i>noch ${Math.max(0, d.tagesziel - gelernt)} min</div></div></div></div>
-      <div class="flz-ring-leg">${teile.map((k) => `<span><i style="background:${MODUL_INFO[k].farbe}"></i>${MODUL_INFO[k].kurz} ${d.gelerntHeute[k]}</span>`).join('')}</div>`;
+      <div class="flz-ring-mitte"><div class="flz-ring-normal"><div class="flz-ring-zahl"><span data-zaehl="${gelernt}">${gelernt}</span><small>von ${d.tagesziel} Min.</small></div></div>
+      <div class="flz-ring-detail">${teile.map((k) => `<div><i style="background:${MODUL_INFO[k].farbe}"></i>${MODUL_INFO[k].kurz} ${d.gelerntHeute[k]} Min.</div>`).join('')}<div><i class="is-rest"></i>noch ${Math.max(0, d.tagesziel - gelernt)} Min.</div></div></div></div>
+      <div class="flz-ring-leg">Lernzeit heute</div>`;   // Aufteilung nach Modul erst beim Darüberfahren (17.11.: „überfüllt“)
     // Ring B: flache Stücke pro Modul, feine Fuge dazwischen
     const svg = ring.querySelector('svg'), R = 64, c = 72, U = 2 * Math.PI * R, ziel = Math.max(d.tagesziel, gelernt, 1);
     svgEl('circle', { class: 'flz-r-spur', cx: c, cy: c, r: R }, svg);
@@ -3318,11 +3318,10 @@ class LernzentraleAnsicht extends obsidian.ItemView {
       return;
     }
     const fertig = d.etappe.filter((p) => p.status === 'fertig').length;
-    const rest = d.etappe.filter((p) => p.status !== 'fertig').reduce((s, p) => s + (p.minuten || 0), 0);
-    rechts.innerHTML = `<div class="flz-et-kopf"><span class="flz-h" id="flz-heute-titel">Deine Etappe heute</span><span class="flz-et-stand">${d.etappe.length ? `<b>${fertig} von ${d.etappe.length}</b> Posten${rest ? ` · noch etwa ${rest} min` : ''}` : ''}</span></div>`;
+    rechts.innerHTML = `<div class="flz-et-kopf"><span class="flz-h" id="flz-heute-titel">Deine Etappe heute</span><span class="flz-et-stand">${d.etappe.length ? `<b>${fertig} von ${d.etappe.length}</b> erledigt` : ''}</span></div>`;
     if (!d.etappe.length) { rechts.appendChild(h('p', 'flz-leise', 'Heute ist nichts geplant.')); return; }
     const schritte = rechts.appendChild(h('div', 'flz-schritte'));
-    schritte.style.gridTemplateColumns = `repeat(${d.etappe.length}, minmax(0, 1fr)) 170px`;
+    schritte.style.gridTemplateColumns = `repeat(${d.etappe.length}, minmax(0, 1fr)) 200px`;
     // Seit 17.11.: oben nur die Kreise als Fortschritt, darunter der aktuelle Posten gross und „Danach“ als Liste.
     // Bei 7 Posten waren die Spalten zu schmal für die Titel („überladen“, Wunsch 17.11.).
     const metaHtml = (p) => {
@@ -3372,7 +3371,7 @@ class LernzentraleAnsicht extends obsidian.ItemView {
     if (geschafft) zk.innerHTML = '<span class="flz-ziel-fuell"></span>' + icon('<path d="M12 3l2.6 5.5 6 .8-4.4 4.1 1.1 5.9L12 16.4l-5.3 2.9 1.1-5.9-4.4-4.1 6-.8z"/>');
     z.appendChild(h('div', 'flz-ziel-txt')).innerHTML = geschafft
       ? '<b>Geschafft!</b>Etappe komplett'
-      : d.ziel ? `<b>${d.ziel.neu}&nbsp;%</b>${d.ziel.kurz} am Ziel, <span class="flz-nowrap">statt ${d.ziel.ist}&nbsp;%</span>` : '<b>Ziel</b>';
+      : d.ziel ? `<b>${d.ziel.kurz} ${d.ziel.ist}&nbsp;% → ${d.ziel.neu}&nbsp;%</b>wenn du alles schaffst` : '<b>Ziel</b>';
     // Feiern einmal pro Tag, erst wenn das Ziel wirklich im Blick ist (nicht in einem versteckten Tab)
     const daten = this.plugin.daten || {};
     if (this.zielBeob) { this.zielBeob.disconnect(); this.zielBeob = null; }

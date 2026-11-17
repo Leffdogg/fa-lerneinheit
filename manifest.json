@@ -1,7 +1,7 @@
 {
   "id": "fa-lerneinheit",
   "name": "FA-Lerneinheit",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "minAppVersion": "1.5.0",
   "description": "Führt Schritt für Schritt durch Lerneinheiten in Financial Accounting und Angewandter Mathematik 1, mit Timer, Buchungstabellen, Zahlenprüfung, Prüfungsfahrplan und Spick.",
   "author": "Leffdogg",

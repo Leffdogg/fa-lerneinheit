@@ -947,3 +947,9 @@
 .flz-schritt.is-ziel .flz-ziel-txt { line-height: 1.25; }
 /* Danach-Liste ohne eigene Nummern (stehen schon oben in den Kreisen), Titel ruhiger */
 .flz-danach-titel { font-weight: 500; color: var(--text-normal); }
+/* Startseite aufgeräumt (17.11.): Ring oben bündig mit der Überschrift, ruhige Beschriftung darunter */
+.flz-heute { align-items: start; }
+.flz-ring-leg { display: block; text-align: center; font-size: 12.5px; color: var(--text-faint); }
+.flz-schritt.is-ziel .flz-ziel-txt b { font-size: 13.5px; white-space: nowrap; }
+.flz-schritte::before { right: 182px; }
+.flz-danach { max-width: 480px; }
