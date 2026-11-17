@@ -1294,11 +1294,39 @@ function hakeAb(boardText, zeile, heuteISO = null, spalte = null) {
   return z.join('\n');
 }
 
+// Neues Fälligkeitsdatum für eine offene Karte (Knöpfe „Heute“/„Morgen“/„Datum“ an überfälligen Karten, Wunsch 17.11.).
+// Sucht die Zeile wie hakeAb in der eigenen Spalte; ersetzt @{datum} oder hängt es an. null, wenn die Karte weg ist.
+function setzeDatum(boardText, zeile, neuISO, spalte = null) {
+  const z = boardText.split('\n');
+  let i = -1;
+  const sp = spalte ? z.findIndex((x) => x.trim() === `## ${spalte}`) : -1;
+  if (sp >= 0) for (let j = sp + 1; j < z.length && !/^## /.test(z[j]); j++) if (z[j] === zeile) { i = j; break; }
+  if (i < 0) i = z.indexOf(zeile);
+  if (i < 0 || !/^- \[ \] /.test(zeile)) return null;
+  const cr = /\r$/.test(z[i]) ? '\r' : '';
+  const ohne = z[i].replace(/\r$/, '');
+  z[i] = (/@\{\d{4}-\d{2}-\d{2}\}/.test(ohne) ? ohne.replace(/@\{\d{4}-\d{2}-\d{2}\}/, `@{${neuISO}}`) : `${ohne} @{${neuISO}}`) + cr;
+  return z.join('\n');
+}
+
 // Etappe von heute: heute erledigte Lerneinheiten, dann fällige offene in Board-Reihenfolge; die erste offene ist „jetzt“
 // heuteFertig(link): true, wenn das Plugin die Einheit heute abgeschlossen hat. Kanban speichert kein ✅-Datum,
 // darum fiel eine heute erledigte, aber gestern fällige Einheit sonst aus der Etappe (14.11. „Bewertung nach OR“).
 // rang: { schluessel: zahl } aus „Später“/„Vorziehen“ (Wunsch 16.11.), kleiner = früher, Standard 0
 const etappeSchluessel = (p) => p.link || p.text;
+// Kurzer Titel für die schmalen Etappen-Spalten (17.11.: „überladen“): „Wiederholung X“ → „Wdh. X“, „– Einheit“ fällt weg
+// Weiche Trennstellen in langen Wörtern (ab 11 Zeichen), damit sie mit Bindestrich statt mitten im Wort umbrechen.
+// Einfache Regel: zwischen zwei Konsonanten vor einem Vokal (Jour-na-lis-mus, Geldfluss-rechnung), aber nicht mitten
+// in einem Dreierbündel (kein „Geldf-luss“); beide Teile mindestens 4 Zeichen. Electron trennt Deutsch nicht selbst.
+const weichTrennen = (t) => String(t).replace(/[\p{L}]{11,}/gu, (w) => {
+  const vok = (c) => /[aeiouäöüy]/i.test(c || '');
+  const stellen = [];
+  for (let i = 4; i <= w.length - 4; i++) {
+    if (!vok(w[i - 1]) && !vok(w[i]) && vok(w[i + 1]) && (vok(w[i - 2]) || w[i - 1] === w[i - 2])) stellen.push(i);
+  }
+  return stellen.length ? stellen.reduceRight((acc, i) => acc.slice(0, i) + '­' + acc.slice(i), w) : w;
+});
+const etappeTitel = (t) =>String(t).replace(/^Wiederholung\s+/i, 'Wdh. ').replace(/\s+[–-]\s+Einheit(?=\s|$)/i, '').trim();
 function etappeHeute(board, heuteISO, heuteFertig = () => false, rang = {}) {
   // Seit 15.11.2026: alle heute fälligen Karten, nicht nur Lerneinheiten (z. B. ein Quiz)
   // Überfällige normale Karten nicht (sonst 17 Posten), nur Lerneinheiten dürfen nachhängen.
@@ -2999,6 +3027,41 @@ class LernzentraleAnsicht extends obsidian.ItemView {
       }
       if (!ok) { rahmen.classList.remove('is-weg'); new obsidian.Notice('Die Karte hat sich im Board geändert. Bitte dort abhaken.'); }
     };
+    // Überfällig: mit einem Klick auf heute oder morgen schieben
+    if (k.ueberfaellig && k.zeile) {
+      const leiste = rahmen.appendChild(h('div', 'flz-schieben'));
+      const schiebe = async (iso) => {
+        const datei = this.app.vault.getAbstractFileByPath(CFG.board);
+        if (!(datei instanceof obsidian.TFile) || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+        let ok = false;
+        try {
+          await this.app.vault.process(datei, (alt) => { const neu = setzeDatum(alt, k.zeile, iso, k.spalte); ok = neu !== null; return neu === null ? alt : neu; });
+        } catch (err) { new obsidian.Notice(`Verschieben ging nicht: ${err.message}`); return; }
+        if (!ok) new obsidian.Notice('Die Karte hat sich im Board geändert. Bitte dort das Datum ändern.');
+      };
+      for (const [label, n] of [['Heute', 0], ['Morgen', 1]]) {
+        const s = leiste.appendChild(h('button', 'flz-schieben-knopf'));
+        s.textContent = label;
+        s.title = `Auf ${label.toLowerCase()} verschieben`;
+        s.onclick = (e) => { e.stopPropagation(); schiebe(plusTage(heute(), n)); };
+      }
+      // Eigenes Datum: Kalender des Systems; Knopf trägt ein unsichtbares Datumsfeld
+      const anders = leiste.appendChild(h('button', 'flz-schieben-knopf'));
+      anders.textContent = 'Datum …';
+      anders.title = 'Anderes Datum wählen';
+      const feld = anders.appendChild(document.createElement('input'));
+      feld.type = 'date';
+      feld.className = 'flz-schieben-feld';
+      feld.min = heute();
+      feld.value = plusTage(heute(), 2);
+      feld.tabIndex = -1;
+      feld.onclick = (e) => e.stopPropagation();
+      feld.onchange = () => schiebe(feld.value);
+      anders.onclick = (e) => {
+        e.stopPropagation();
+        try { feld.showPicker(); } catch { feld.focus(); feld.click(); }
+      };
+    }
     const wann = (k.wann || '').split(' · ').map((t, i) => (i ? ` <span class="flz-bk-datum">· ${escHtml(t)}</span>` : `<span class="flz-bk-rel">${escHtml(t)}</span>`)).join('');
     b.innerHTML = `<b>${escHtml(k.text)}</b>${k.art === 'wiederholen' ? `<span class="flz-bk-hinweis">${folgtHinweis()}</span>` : ''}<span class="flz-bk-zeile">${k.art ? `<span class="flz-etikett is-${k.art}">${ETIKETT[k.art]}</span>` : ''}<span class="flz-bk-wann">${wann}</span></span>`;
     // Wiederholen-Karten: Die Routine baut die Einheit erst noch, deshalb führen sie auf die Modulseite (Wunsch 11.11.)
@@ -3010,16 +3073,25 @@ class LernzentraleAnsicht extends obsidian.ItemView {
       };
     } else if (k.link) b.onclick = () => this.oeffne(k.link);
     else b.disabled = true;
-    // Aufgaben-Uhr für alles ohne eigene Lerneinheit (Videos, Lesen, Aufträge); Lerneinheiten haben ihren Timer
+    // Aufgaben-Uhr für alles ohne eigene Lerneinheit (Videos, Lesen, Aufträge): startet mit dem Klick auf die Karte
+    // (Play-Knopf seit 17.11. weg); Lerneinheiten haben ihren eigenen Timer
     const modul = k.modul || Object.keys(MODUL_SPALTEN).find((x) => MODUL_SPALTEN[x] === k.spalte);
     if (modul && k.art !== 'lerneinheit' && k.art !== 'wiederholen') {
-      const play = rahmen.appendChild(h('button', 'flz-play'));
-      play.dataset.uhr = `${modul}|${k.text}`;
-      play.setAttribute('aria-label', `Zeit messen: ${k.text}`);
-      play.title = 'Zeit messen';
-      play.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
-      play.onclick = () => this.plugin.starteUhr({ text: k.text, modul, zeile: k.zeile, spalte: k.spalte });
+      rahmen.dataset.uhr = `${modul}|${k.text}`;
+      b.disabled = false;
+      b.title = 'Starten (Zeit wird gemessen)';
+      b.onclick = () => {
+        this.plugin.starteUhr({ text: k.text, modul, zeile: k.zeile, spalte: k.spalte });
+        if (k.link) this.oeffne(k.link);
+      };
       this.markiereUhr();
+    }
+    // Überfällige Karte: Klick geht wegen der Unschärfe nicht, darum „Starten“ als erster Knopf im Overlay
+    const leiste = rahmen.querySelector('.flz-schieben');
+    if (leiste && !b.disabled) {
+      const start = leiste.insertBefore(h('button', 'flz-schieben-knopf is-start'), leiste.firstChild);
+      start.textContent = 'Starten';
+      start.onclick = (e) => { e.stopPropagation(); b.onclick(); };
     }
   }
 
@@ -3027,7 +3099,7 @@ class LernzentraleAnsicht extends obsidian.ItemView {
   markiereUhr() {
     const u = this.plugin.daten.freiUhr;
     const an = u ? `${u.modul}|${u.text}` : null;
-    for (const b of this.contentEl.querySelectorAll('.flz-play')) b.classList.toggle('is-an', b.dataset.uhr === an);
+    for (const r of this.contentEl.querySelectorAll('.flz-bk-rahmen[data-uhr]')) r.classList.toggle('is-uhr', r.dataset.uhr === an);
   }
 
   // Erledigt-Streifen unter der Tafel: zuletzt abgehakte Aufgaben, die neuesten zuerst
@@ -3255,10 +3327,13 @@ class LernzentraleAnsicht extends obsidian.ItemView {
       const s = schritte.appendChild(h('div', `flz-schritt is-${p.status}`));
       s.appendChild(h('span', 'flz-knoten')).innerHTML = p.status === 'fertig' ? icon('<path d="M20 6 9 17l-5-5"/>') : String(i + 1);
       const t = s.appendChild(h('div', 'flz-s-text'));
-      const titel = t.appendChild(h('b', null, p.text));
+      const titel = t.appendChild(h('b', null, weichTrennen(etappeTitel(p.text))));
       titel.title = p.text;
       const m = p.modul ? MODUL_INFO[p.modul] : null;
-      t.appendChild(h('div', 'flz-s-meta')).innerHTML = (m ? `<i style="background:${m.farbe}"></i>` : '') + [m ? m.kurz : '', p.minuten ? `${p.minuten} min` : ''].filter(Boolean).join(' · ');
+      // Modul nur als Farbpunkt (wie die Tabs oben), Name im Tooltip – sonst wurde „KDW · 22 min“ abgeschnitten (17.11.)
+      const meta = t.appendChild(h('div', 'flz-s-meta'));
+      meta.innerHTML = (m ? `<i style="background:${m.farbe}"></i>` : '') + (p.minuten ? `${p.minuten}&nbsp;Min.` : (m ? m.kurz : ''));
+      if (m) { meta.title = m.kurz; titel.title = `${m.kurz}: ${p.text}`; }
       if (p.grund) t.appendChild(h('div', 'flz-s-grund', p.grund));
       if (p.status === 'jetzt') {
         const b = t.appendChild(h('button', 'flz-btn is-cta'));
@@ -4084,4 +4159,4 @@ module.exports = FaLerneinheit;
 module.exports.logik = { bezuege, zeitSchritt, modulAusPfad, zeitDazu, mischeZeit, wochenzielFuer, auswahlWahl, bewerteKprim, bewerteAuswahl, kprimWahl, videosFuer, ERKLAERVIDEOS, folgtHinweis, kw,unterlagenGruppen, wiederholKarte, quizListe, themaMitQuiz, NEUE_MODULE, tafelSpalte, hakeAb, naechsteSiebenMitRest, UNTERLAGEN, PRUEFUNG, pruefungsSatz, modulDateien, letzteRunde, naechsteSieben, erledigtListe, fakten, fahrplanKennzahlen, hochrechnung, leseBoard, etappeHeute, lernMinuten, wocheVon, serie, tagesziel, MODUL_SPALTEN, pruefTempo, bewerteBuchung, prozentFuerMit, uebernahmeAblauf, istVorschlagSeite, pdfSeiten, pruefeSpick, spickAenderungen, uebernimmVorschlag, spickHtml, SPICK_MAX_ZEICHEN, noteMit, naechsteTodos, matheZeilen, cfgFuer, MODULE, leseZahl, leseZahlen, pruefeZahl, pruefeMenge, pruefeEinheit, KONTENPLAN, EINSCHAETZUNGEN, istKonto,
   neuerZustand, starte, stoppeLaufenden, istWackelig, MAX_LAUF_S, stoppeNachAbsturz, nachPause, fallSekunden, matheEinheitZeile, uhrSek, uhrPause, setzeZeit,
   hakeKarteAb, fortschrittZeile, setzeFortschritt, pruefungsErgebnis, restSekunden, freischaltung, normKonto, leseBetrag, pruefeBuchung, trefferQuote,
-  leseFortschritt, punkteZeile, themaStatus, sollAm, sollStoff, unterrichtVon, niveauAus, druckStufe, noteAus, pruefungsInfo, setzePlanWert, prozentFuer, statusAus, pruefeFahrplan, setzeWiederholung, tageBis };
+  leseFortschritt, punkteZeile, themaStatus, sollAm, sollStoff, unterrichtVon, niveauAus, druckStufe, noteAus, pruefungsInfo, setzePlanWert, prozentFuer, statusAus, pruefeFahrplan, setzeWiederholung, tageBis, setzeDatum, etappeTitel, weichTrennen };

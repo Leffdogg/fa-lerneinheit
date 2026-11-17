@@ -486,11 +486,11 @@
 .flz-knoten svg { width: 17px; height: 17px; }
 .flz-schritt.is-jetzt .flz-knoten { background: var(--flz-ak); color: var(--text-on-accent); animation: flz-puls 2.2s ease-in-out infinite; }
 @keyframes flz-puls { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--flz-ak) 40%, transparent); } 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--flz-ak) 0%, transparent); } }
-.flz-s-text { padding: 0 4px 0 2px; }
-.flz-s-text b { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-size: 14.5px; line-height: 1.3; }
+.flz-s-text { padding: 0 4px 0 2px; min-width: 0; }
+.flz-s-text b { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; font-size: 13px; line-height: 1.25; hyphens: manual; overflow-wrap: break-word; }
 .flz-schritt.is-fertig .flz-s-text b { color: var(--text-muted); }
-.flz-s-meta { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }
-.flz-s-meta i { width: 7px; height: 7px; border-radius: 50%; }
+.flz-s-meta { display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }
+.flz-s-meta i { flex: none; width: 7px; height: 7px; border-radius: 50%; }
 .flz-s-grund { font-size: 12.5px; color: var(--text-faint); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .flz-s-text .flz-btn { margin-top: 8px; }
 .flz-schritt.is-jetzt .flz-s-text .flz-btn { display: flex; box-sizing: border-box; width: 100%; max-width: 140px; justify-content: center; }
@@ -906,3 +906,17 @@
 .fle-plan-pruefung-h { color: var(--text-muted); font-size: 0.86em; margin-bottom: 2px; }
 .fle-plan-pruefung ul { margin: 0; padding-left: 18px; }
 .fle-plan-pruefung li { margin: 2px 0; }
+/* Überfällige Karten: beim Darüberfahren wird die Karte unscharf, darüber „Heute“/„Morgen“/„Datum …“ */
+.flz .flz-schieben { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 5px; padding: 6px; border-radius: inherit; opacity: 0; pointer-events: none; transition: opacity .18s; }
+.flz .flz-bk-rahmen:hover .flz-schieben, .flz .flz-schieben:focus-within { opacity: 1; pointer-events: auto; }
+.flz .flz-bk-rahmen:has(.flz-schieben) button.flz-bk > *, .flz .flz-bk-rahmen:has(.flz-schieben) .flz-haken, .flz .flz-bk-rahmen:has(.flz-schieben) .flz-play { transition: filter .18s, opacity .18s; }
+.flz .flz-bk-rahmen:has(.flz-schieben):is(:hover, :focus-within) button.flz-bk > *,
+.flz .flz-bk-rahmen:has(.flz-schieben):is(:hover, :focus-within) .flz-haken,
+.flz .flz-bk-rahmen:has(.flz-schieben):is(:hover, :focus-within) .flz-play { filter: blur(3px); opacity: .45; }
+.flz button.flz-schieben-knopf { position: relative; padding: 3px 9px; height: auto; font-size: 12px; font-weight: 600; border-radius: 7px; border: 1px solid var(--background-modifier-border); background: var(--background-primary); box-shadow: 0 1px 4px rgba(0,0,0,.12); color: var(--text-normal); cursor: pointer; transition: color .15s, border-color .15s, transform .15s; }
+.flz button.flz-schieben-knopf:hover { color: var(--flz-ak); border-color: var(--flz-ak); transform: translateY(-1px); }
+.flz .flz-schieben-feld { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; border: 0; padding: 0; }
+/* Laufende Aufgaben-Uhr: Karte blau umrandet (früher der blaue ▶) */
+.flz .flz-bk-rahmen.is-uhr button.flz-bk { border-color: var(--flz-ak); box-shadow: 0 0 0 1px var(--flz-ak); }
+.flz button.flz-schieben-knopf.is-start { background: var(--flz-ak); border-color: var(--flz-ak); color: #fff; }
+.flz button.flz-schieben-knopf.is-start:hover { color: #fff; filter: brightness(1.08); }
