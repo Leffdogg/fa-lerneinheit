@@ -286,7 +286,7 @@ Die Fälle stehen direkt auf der Seite der Lerneinheit (Schritt 7). **Stil wie i
 
 Je **rund 30 Minuten im Prüfungstempo** (etwa 20 Buchungssätze plus zwei, drei Rechenfragen).
 
-1. **Theorie** (`art: theorie`, 5–10 Min) — nur bei neuem Thema oder nach `nicht verstanden`.
+1. **Theorie** (`art: theorie`, 5–10 Min) — **immer**, auch bei Wiederholungen: neues Thema oder nach `nicht verstanden` 5–10 Min, sonst kurz (2–3 Min, nur der Abschnitt, den die Fälle brauchen).
    `notiz:` zeigt auf den passenden Abschnitt einer Theorienotiz im Vault (Tabelle unten); das Plugin
    bettet ihn ein. `text:` ergänzt höchstens drei, vier Sätze, z. B. die passende Kontierungsrichtlinie.
    Das Plugin zeigt im Theorie-Schritt automatisch das passende Erklärvideo.

@@ -51,7 +51,7 @@ und 1 A4-Spick beidseitig, handgeschrieben.
 
 ## Aufbau einer Mathe-Einheit (45–60 Min)
 
-1. **Theorie** (5–8 Min), nur bei neuer Aufgabenart oder nach `nicht verstanden`: `notiz:` auf die Theorienotiz. Dazu `text:` mit 2–4 Sätzen: Woran erkennt man die Situation im Text?
+1. **Theorie**, **immer** (neue Aufgabenart oder nach `nicht verstanden` 5–8 Min, sonst 2–3 Min): `notiz:` auf die Theorienotiz. Dazu `text:` mit 2–4 Sätzen: Woran erkennt man die Situation im Text?
 2. **Aufwärmen** (5–8 Min): reine Rechnungen, 2 Fälle.
 3. **Aufgaben** (rund 80 %): 2–3 Schritte im Testserie-Stil, also Sachtext in `einleitung`, dazu Teilfragen a, b, c … mit Rundungsvorgabe.
 

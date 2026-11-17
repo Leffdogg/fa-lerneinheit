@@ -46,7 +46,7 @@ Steht im Board `[[Prüfungsfahrplan OB|Wiederholen: <Thema>]]` (ebenso PoM, KDW)
 am selben Tag eine **kurze Einheit (10–15 Min)** zum Thema und ersetzt die Karte durch
 `- [ ] [[<neue Seite>]] @{<fällig>}`. Name `<Thema> – Einheit II` (gibt es den schon: `III`, …). Fällig am
 nächsten freien Tag, sonst heute. Ist das Thema reines Wissen und es gibt dazu ein Quiz mit
-wackeligen Fragen, darf die Einheit nur aus Aufwärmen (Quizfragen) und Einschätzen bestehen.
+wackeligen Fragen, besteht die Einheit aus kurzer Theorie (2–3 Min), Aufwärmen (Quizfragen) und Einschätzen. Die Theorie fehlt nie.
 
 ## Aufbau einer Einheit
 
@@ -59,17 +59,20 @@ Format wie in Schritt 7 von `SKILL.md`, aber:
   `art: Lerneinheit`, `quelle: Lernplan Wissensfächer`.
 - Im Block: `modul: ob` bzw. `pom` bzw. `kdw`. `thema:` muss ein **Stichwort aus dem Fahrplan**
   enthalten, sonst zählt die Einheit nicht für das Können.
-- **Jeder Schritt braucht `soll`** (Minuten). Fälle mit `antwort:` (Musterantwort, <NAME>
-  bewertet selbst) oder als Ankreuzfall (`kprim:` / `optionen:`, siehe unten), keine Buchungen. `punkte:` wie an der Prüfung setzen.
+- **Jeder Schritt braucht `soll`** (Minuten). Fälle als **Ankreuzfall im Prüfungsformat** (`kprim:` / `optionen:`, siehe unten), auch im Aufwärmen;
+  `antwort:`-Textfelder nur für die PoM-Fallstudie. Keine Buchungen. `punkte:` wie an der Prüfung setzen.
 - Kein Beilage-Knopf (Kontenplan/Spick gibt es hier nicht).
 
 Schritte:
 
 1. **Theorie (5 Min):** `notiz: "<Theorienotiz>#<Überschrift>"` aus die Theorienotiz, Überschrift vorher
-   nachschlagen. Dazu 2–3 Sätze `text`, was heute wichtig ist.
+   nachschlagen. Dazu 2–3 Sätze `text`, was heute wichtig ist. Gibt es keine passende Notiz, `notiz` weglassen
+   und die Theorie in 4–6 Sätzen direkt in `text` schreiben. Der Theorie-Schritt fehlt nie.
 2. **Aufwärmen aus dem Quiz (5 Min):** 3–4 Fragen aus der Quizseite des Themas, bevorzugt die, die in
    `data.json` unter `fragen` noch nicht sicher sind (`ok < 2`) oder nie gespielt wurden. Als
-   `antwort`-Fall umformulieren, nicht wörtlich kopieren, mit der Begründung aus der Quizseite.
+   **Ankreuzfall im Prüfungsformat des Moduls** (OB: A+ oder Kprim, KDW: MC, PoM: `kprim`-Wahr/falsch,
+   Format wie in Schritt 3; nie als `antwort`-Textfeld), umformulieren, nicht wörtlich kopieren,
+   `warum` mit der Begründung aus der Quizseite.
    Gibt es kein Quiz zum Thema, Aufwärmen aus der Theorienotiz.
 3. **Aufgaben im Prüfungsstil (10–12 Min):**
    - **OB** (MooPad, Kprim und A+, keine Hilfsmittel): zwei **Kprim**-Fragen und zwei **A+**-Fragen,
