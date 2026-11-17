@@ -3339,14 +3339,13 @@ class LernzentraleAnsicht extends obsidian.ItemView {
       s.appendChild(h('span', 'flz-knoten')).innerHTML = p.status === 'fertig' ? icon('<path d="M20 6 9 17l-5-5"/>') : String(i + 1);
       const label = s.appendChild(h('span', 'flz-s-modul', m ? m.kurz : ''));
       if (m) label.style.setProperty('--flz-mf', m.farbe);
+      // Der aktuelle Posten steht schon unten in der Jetzt-Zeile, darum keine Hover-Karte (Wunsch 17.11.)
+      if (p.status === 'jetzt') { s.tabIndex = -1; return; }
       const pop = s.appendChild(h('div', 'flz-s-pop'));
       pop.appendChild(h('b', null, p.text));
       pop.appendChild(h('div', 'flz-s-meta')).innerHTML = (m ? `<i style="background:${m.farbe}"></i>${m.kurz}` : '') + (m && p.minuten ? ' · ' : '') + (p.minuten ? `${p.minuten}&nbsp;Min.` : '');
       if (p.status === 'fertig') pop.appendChild(h('div', 'flz-s-grund', 'erledigt'));
-      else if (p.status === 'jetzt') {
-        const b = pop.appendChild(h('button', 'flz-btn is-cta', 'Starten'));
-        b.onclick = () => this.oeffne(p.link);
-      } else {
+      else {
         const vz = pop.appendChild(h('button', 'flz-btn', 'Jetzt machen'));
         vz.onclick = () => this.verschiebe(d, p, -1);
       }
