@@ -3321,57 +3321,61 @@ class LernzentraleAnsicht extends obsidian.ItemView {
     rechts.innerHTML = `<div class="flz-et-kopf"><span class="flz-h" id="flz-heute-titel">Deine Etappe heute</span><span class="flz-et-stand">${d.etappe.length ? `<b>${fertig} von ${d.etappe.length}</b> erledigt` : ''}</span></div>`;
     if (!d.etappe.length) { rechts.appendChild(h('p', 'flz-leise', 'Heute ist nichts geplant.')); return; }
     const schritte = rechts.appendChild(h('div', 'flz-schritte'));
-    schritte.style.gridTemplateColumns = `repeat(${d.etappe.length}, minmax(0, 1fr)) 200px`;
-    // Seit 17.11.: oben nur die Kreise als Fortschritt, darunter der aktuelle Posten gross und „Danach“ als Liste.
-    // Bei 7 Posten waren die Spalten zu schmal für die Titel („überladen“, Wunsch 17.11.).
-    const metaHtml = (p) => {
-      const m = p.modul ? MODUL_INFO[p.modul] : null;
-      return (m ? `<i style="background:${m.farbe}"></i>${m.kurz}` : '') + (m && p.minuten ? ' · ' : '') + (p.minuten ? `${p.minuten}&nbsp;Min.` : '');
-    };
-    d.etappe.forEach((p, i) => {
-      const s = schritte.appendChild(h('div', `flz-schritt is-${p.status}`));
-      s.appendChild(h('span', 'flz-knoten')).innerHTML = p.status === 'fertig' ? icon('<path d="M20 6 9 17l-5-5"/>') : String(i + 1);
-      s.title = `${i + 1}. ${p.text}${p.status === 'fertig' ? ' (erledigt)' : ''}`;
-    });
+    // Seit 17.11. (Wunsch: „erst simple Übersicht, Details beim Darüberfahren“): unter jedem Kreis nur das Modul,
+    // Titel, Minuten und Knopf in einer kleinen Karte beim Darüberfahren; darunter eine schlanke „Jetzt“-Zeile.
+    const n = d.etappe.length + 1;
+    schritte.style.gridTemplateColumns = `repeat(${n}, minmax(0, 1fr))`;
+    schritte.style.setProperty('--flz-n', n);
     const jetzt = d.etappe.find((p) => p.status === 'jetzt');
-    const danach = d.etappe.map((p, i) => ({ p, nr: i + 1 })).filter((x) => x.p.status === 'offen');
+    const offen = d.etappe.some((p) => p.status === 'offen');
+    const kante = (i) => (i === 0 ? ' is-links' : i >= n - 2 ? ' is-rechts' : '');
+    d.etappe.forEach((p, i) => {
+      const m = p.modul ? MODUL_INFO[p.modul] : null;
+      const s = schritte.appendChild(h('div', `flz-schritt is-${p.status}` + kante(i)));
+      s.tabIndex = 0;
+      s.setAttribute('aria-label', `${i + 1}. ${p.text}${p.status === 'fertig' ? ', erledigt' : ''}`);
+      s.appendChild(h('span', 'flz-knoten')).innerHTML = p.status === 'fertig' ? icon('<path d="M20 6 9 17l-5-5"/>') : String(i + 1);
+      const label = s.appendChild(h('span', 'flz-s-modul', m ? m.kurz : ''));
+      if (m) label.style.setProperty('--flz-mf', m.farbe);
+      const pop = s.appendChild(h('div', 'flz-s-pop'));
+      pop.appendChild(h('b', null, p.text));
+      pop.appendChild(h('div', 'flz-s-meta')).innerHTML = (m ? `<i style="background:${m.farbe}"></i>${m.kurz}` : '') + (m && p.minuten ? ' · ' : '') + (p.minuten ? `${p.minuten}&nbsp;Min.` : '');
+      if (p.status === 'fertig') pop.appendChild(h('div', 'flz-s-grund', 'erledigt'));
+      else if (p.status === 'jetzt') {
+        const b = pop.appendChild(h('button', 'flz-btn is-cta', 'Starten'));
+        b.onclick = () => this.oeffne(p.link);
+      } else {
+        const vz = pop.appendChild(h('button', 'flz-btn', 'Jetzt machen'));
+        vz.title = 'Diesen Posten vorziehen';
+        vz.onclick = () => this.verschiebe(d, p, -1);
+      }
+    });
+    const geschafft = fertig === d.etappe.length;
+    const z = schritte.appendChild(h('div', 'flz-schritt is-ziel is-rechts' + (geschafft ? ' is-geschafft' : '')));
+    z.tabIndex = 0;
+    const zk = z.appendChild(h('span', 'flz-zielknoten'));
+    if (geschafft) zk.innerHTML = '<span class="flz-ziel-fuell"></span>' + icon('<path d="M12 3l2.6 5.5 6 .8-4.4 4.1 1.1 5.9L12 16.4l-5.3 2.9 1.1-5.9-4.4-4.1 6-.8z"/>');
+    z.appendChild(h('span', 'flz-s-modul flz-ziel-txt', geschafft ? 'Geschafft!' : d.ziel ? `${d.ziel.kurz} ${d.ziel.neu} %` : 'Ziel'));
+    const zp = z.appendChild(h('div', 'flz-s-pop'));
+    zp.appendChild(h('b', null, geschafft ? 'Etappe komplett' : 'Ziel der Etappe'));
+    if (!geschafft && d.ziel) zp.appendChild(h('div', 'flz-s-grund', `Schaffst du alle Posten, steht ${d.ziel.kurz} bei ${d.ziel.neu} % statt ${d.ziel.ist} %.`));
+    // Jetzt-Zeile: der aktuelle Posten mit ganzem Titel, ohne Kasten
     if (jetzt) {
-      const unten = rechts.appendChild(h('div', 'flz-et-unten'));
-      const karte = unten.appendChild(h('div', 'flz-jetzt'));
-      karte.appendChild(h('span', 'flz-jetzt-label', 'Jetzt'));
-      karte.appendChild(h('b', 'flz-jetzt-titel', jetzt.text));
-      karte.appendChild(h('div', 'flz-s-meta')).innerHTML = metaHtml(jetzt);
-      if (jetzt.grund) karte.appendChild(h('div', 'flz-s-grund', jetzt.grund));
-      const knoepfe = karte.appendChild(h('div', 'flz-jetzt-knoepfe'));
-      const b = knoepfe.appendChild(h('button', 'flz-btn is-cta'));
+      const zeile = rechts.appendChild(h('div', 'flz-jetzt'));
+      const m = jetzt.modul ? MODUL_INFO[jetzt.modul] : null;
+      const txt = zeile.appendChild(h('div', 'flz-jetzt-txt'));
+      txt.appendChild(h('span', 'flz-jetzt-label', 'Jetzt dran'));
+      txt.appendChild(h('b', 'flz-jetzt-titel', jetzt.text));
+      txt.appendChild(h('span', 'flz-s-meta')).innerHTML = (m ? `<i style="background:${m.farbe}"></i>${m.kurz}` : '') + (m && jetzt.minuten ? ' · ' : '') + (jetzt.minuten ? `${jetzt.minuten}&nbsp;Min.` : '');
+      const b = zeile.appendChild(h('button', 'flz-btn is-cta'));
       b.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>Starten';
       b.onclick = () => this.oeffne(jetzt.link);
-      if (danach.length) {
-        const sp = knoepfe.appendChild(h('button', 'flz-btn flz-s-schieb', 'Später'));
+      if (offen) {
+        const sp = zeile.appendChild(h('button', 'flz-btn flz-s-schieb', 'Später'));
         sp.title = 'Diesen Posten ans Ende schieben';
         sp.onclick = () => this.verschiebe(d, jetzt, +1);
       }
-      if (danach.length) {
-        const liste = unten.appendChild(h('div', 'flz-danach'));
-        liste.appendChild(h('span', 'flz-jetzt-label', 'Danach'));
-        for (const { p } of danach) {
-          const z = liste.appendChild(h('div', 'flz-danach-zeile'));
-          const t = z.appendChild(h('span', 'flz-danach-titel', etappeTitel(p.text)));
-          t.title = p.text;
-          z.appendChild(h('span', 'flz-s-meta')).innerHTML = metaHtml(p);
-          const vz = z.appendChild(h('button', 'flz-btn flz-s-schieb is-hover', 'Jetzt machen'));
-          vz.title = 'Diesen Posten vorziehen';
-          vz.onclick = () => this.verschiebe(d, p, -1);
-        }
-      }
     }
-    const geschafft = fertig === d.etappe.length;
-    const z = schritte.appendChild(h('div', 'flz-schritt is-ziel' + (geschafft ? ' is-geschafft' : '')));
-    const zk = z.appendChild(h('span', 'flz-zielknoten'));
-    if (geschafft) zk.innerHTML = '<span class="flz-ziel-fuell"></span>' + icon('<path d="M12 3l2.6 5.5 6 .8-4.4 4.1 1.1 5.9L12 16.4l-5.3 2.9 1.1-5.9-4.4-4.1 6-.8z"/>');
-    z.appendChild(h('div', 'flz-ziel-txt')).innerHTML = geschafft
-      ? '<b>Geschafft!</b>Etappe komplett'
-      : d.ziel ? `<b>${d.ziel.kurz} ${d.ziel.ist}&nbsp;% → ${d.ziel.neu}&nbsp;%</b>wenn du alles schaffst` : '<b>Ziel</b>';
     // Feiern einmal pro Tag, erst wenn das Ziel wirklich im Blick ist (nicht in einem versteckten Tab)
     const daten = this.plugin.daten || {};
     if (this.zielBeob) { this.zielBeob.disconnect(); this.zielBeob = null; }

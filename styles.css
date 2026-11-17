@@ -953,3 +953,30 @@
 .flz-schritt.is-ziel .flz-ziel-txt b { font-size: 13.5px; white-space: nowrap; }
 .flz-schritte::before { right: 182px; }
 .flz-danach { max-width: 480px; }
+/* Etappe v3 (17.11.): Kreise mit Modul darunter, Details als Karte beim Darüberfahren, darunter die Jetzt-Zeile */
+.flz-schritte { gap: 0; }
+.flz-schritte::before { left: calc(100% / var(--flz-n) / 2); right: calc(100% / var(--flz-n) / 2); }
+.flz-schritt { align-items: center; gap: 8px; outline: none; }
+.flz-schritt.is-ziel { flex-direction: column; align-items: center; gap: 8px; }
+.flz-schritt.is-fertig::after { left: 50%; width: 100%; }
+.flz-s-modul { font-size: 12.5px; font-weight: 650; color: var(--flz-mf, var(--text-muted)); white-space: nowrap; }
+.flz-schritt.is-fertig .flz-s-modul { opacity: .55; }
+.flz-schritt.is-ziel .flz-s-modul { color: var(--flz-ak); }
+.flz-schritt.is-geschafft .flz-s-modul { color: var(--flz-gut); }
+.flz-s-pop { position: absolute; top: calc(100% + 10px); left: 50%; z-index: 5; width: 240px; box-sizing: border-box; display: grid; gap: 6px; justify-items: start;
+  padding: 12px 14px; border-radius: 10px; background: var(--background-primary); border: 1px solid var(--background-modifier-border);
+  box-shadow: 0 8px 24px rgba(0,0,0,.12); opacity: 0; pointer-events: none; transform: translate(-50%, 4px); transition: opacity 140ms, transform 140ms; }
+.flz-s-pop::before { content: ""; position: absolute; left: 0; right: 0; top: -12px; height: 12px; }
+.flz-s-pop b { font-size: 14px; line-height: 1.3; }
+.flz-s-pop .flz-s-meta, .flz-s-pop .flz-s-grund { margin: 0; white-space: normal; }
+.flz-s-pop .flz-btn { margin-top: 4px; height: 30px !important; }
+.flz-schritt:hover .flz-s-pop, .flz-schritt:focus-within .flz-s-pop { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
+.flz-schritt.is-links .flz-s-pop { left: 0; transform: translate(0, 4px); }
+.flz-schritt.is-links:hover .flz-s-pop, .flz-schritt.is-links:focus-within .flz-s-pop { transform: none; }
+.flz-schritt.is-rechts .flz-s-pop { left: auto; right: 0; transform: translate(0, 4px); }
+.flz-schritt.is-rechts:hover .flz-s-pop, .flz-schritt.is-rechts:focus-within .flz-s-pop { transform: none; }
+.flz-schritt:focus-visible .flz-knoten, .flz-schritt:focus-visible .flz-zielknoten { box-shadow: 0 0 0 3px color-mix(in srgb, var(--flz-ak) 35%, transparent); }
+.flz-jetzt { flex-direction: row; align-items: center; gap: 12px; margin-top: 26px; padding: 14px 16px; border-radius: 12px; border: none; background: var(--background-primary); }
+.flz-jetzt-txt { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.flz-jetzt-titel { font-size: 15.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.flz-jetzt .flz-btn { margin: 0; }
