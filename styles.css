@@ -980,3 +980,4 @@
 .flz-jetzt-txt { flex: 1; min-width: 0; display: grid; gap: 3px; }
 .flz-jetzt-titel { font-size: 15.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .flz-jetzt .flz-btn { margin: 0; }
+.flz-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

@@ -3333,7 +3333,9 @@ class LernzentraleAnsicht extends obsidian.ItemView {
       const m = p.modul ? MODUL_INFO[p.modul] : null;
       const s = schritte.appendChild(h('div', `flz-schritt is-${p.status}` + kante(i)));
       s.tabIndex = 0;
-      s.setAttribute('aria-label', `${i + 1}. ${p.text}${p.status === 'fertig' ? ', erledigt' : ''}`);
+      // Kein aria-label: Obsidian zeigt dafür einen eigenen Tooltip, der die Hover-Karte verdeckte (17.11.).
+      // Für Screenreader steht der Titel ohnehin in der Karte; die Nummer als versteckter Text.
+      s.appendChild(h('span', 'flz-sr', `Posten ${i + 1}${p.status === 'fertig' ? ', erledigt' : ''}: `));
       s.appendChild(h('span', 'flz-knoten')).innerHTML = p.status === 'fertig' ? icon('<path d="M20 6 9 17l-5-5"/>') : String(i + 1);
       const label = s.appendChild(h('span', 'flz-s-modul', m ? m.kurz : ''));
       if (m) label.style.setProperty('--flz-mf', m.farbe);
@@ -3346,7 +3348,6 @@ class LernzentraleAnsicht extends obsidian.ItemView {
         b.onclick = () => this.oeffne(p.link);
       } else {
         const vz = pop.appendChild(h('button', 'flz-btn', 'Jetzt machen'));
-        vz.title = 'Diesen Posten vorziehen';
         vz.onclick = () => this.verschiebe(d, p, -1);
       }
     });
