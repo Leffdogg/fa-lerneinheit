@@ -26,8 +26,15 @@ else if (art === 'status') {
   if (!r.ok) { console.log(r); process.exit(1); }
   const z = l.leseFortschritt(fs.readFileSync(b, 'utf8'));
   const heute = new Date().toLocaleDateString('sv-SE');
+  // Wie das Plugin: Quizrunden aus lern-quiz und `fertig:` im Fahrplan zählen mit
+  const vault = PLUGIN.replace(/\/\.obsidian\/plugins\/fa-lerneinheit$/, '');
+  const ordner = require('path').relative(vault, require('path').dirname(require('path').resolve(a))).split('\\').join('/');
+  let quiz = null;
+  try { quiz = JSON.parse(fs.readFileSync(vault + '/.obsidian/plugins/lern-quiz/data.json', 'utf8')); } catch (e) { quiz = null; }
+  const liste = l.quizListe(quiz, ordner);
+  const deckel = ['ob', 'pom', 'kdw'].includes(r.plan.modul) ? [0, 40, 55, 70] : [0, 25, 35, 45]; // wie QUIZ_DECKEL / _RECHNEN im Plugin
   for (const t of r.plan.themen) {
-    const s = l.themaStatus(t, z, heute, r.plan.pruefung);
+    const s = l.themaMitQuiz(t, l.themaStatus(t, z, heute, r.plan.pruefung, l.niveauAus(r.plan)), liste, heute, deckel);
     console.log([`${s.koennen}/${s.soll}`, s.druck, s.status, t.stichtag, s.wieder || '-', t.thema].join(' | '));
   }
 } else {
