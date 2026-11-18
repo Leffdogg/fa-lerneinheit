@@ -103,6 +103,86 @@ function pruefeBuchung(eingabe, loesung) {
   return Math.round((punkte / Math.max(zeilen.length, loesung.length)) * 100) / 100;
 }
 
+// Fehler genau zeigen (Wunsch 18.11.): welche Zeile stimmt, wo genau der Fehler steckt, was fehlt.
+// Gleiche Zuordnung wie pruefeBuchung. → { zeilen: [{ i, status: ok|betrag|soll|haben|konten|extra, soll? }], fehlend: [[so, ha, be]] }
+function buchungsDiagnose(eingabe, loesung) {
+  const roh = (eingabe || []).map((r, i) => ({ r, i })).filter(({ r }) => r.some((c) => String(c).trim()));
+  const offen = (loesung || []).map((l) => ({ l, so: normKonto(l[0]), ha: normKonto(l[1]), be: leseBetrag(l[2]) }));
+  const out = roh.map(({ r, i }) => ({ i, so: normKonto(r[0]), ha: normKonto(r[1]), be: leseBetrag(r[2]), status: null }));
+  const nimm = (x, j, status) => { x.status = status; x.soll = offen[j].l; offen.splice(j, 1); };
+  // 1. exakte Treffer, 2. Konten richtig/Betrag falsch, 3. eine Seite richtig, 4. Rest = unnötig
+  for (const x of out) {
+    const j = offen.findIndex((o) => o.so === x.so && o.ha === x.ha && (o.be === null || (x.be !== null && Math.abs(o.be - x.be) < 0.01)));
+    if (j >= 0) nimm(x, j, 'ok');
+  }
+  for (const x of out.filter((y) => !y.status)) {
+    const j = offen.findIndex((o) => o.so === x.so && o.ha === x.ha);
+    if (j >= 0) nimm(x, j, 'betrag');
+  }
+  for (const x of out.filter((y) => !y.status)) {
+    let j = offen.findIndex((o) => o.so === x.so);
+    if (j >= 0) { nimm(x, j, 'haben'); continue; }
+    j = offen.findIndex((o) => o.ha === x.ha);
+    if (j >= 0) { nimm(x, j, 'soll'); continue; }
+    j = offen.findIndex((o) => o.so === x.ha && o.ha === x.so);
+    if (j >= 0) { nimm(x, j, 'vertauscht'); continue; }
+  }
+  for (const x of out.filter((y) => !y.status)) {
+    if (offen.length && x.be !== null && offen.some((o) => o.be !== null && Math.abs(o.be - x.be) < 0.01)) {
+      nimm(x, offen.findIndex((o) => o.be !== null && Math.abs(o.be - x.be) < 0.01), 'konten');
+    } else x.status = 'extra';
+  }
+  return { zeilen: out.map(({ i, status, soll }) => ({ i, status, ...(soll ? { soll } : {}) })), fehlend: offen.map((o) => o.l) };
+}
+
+// Kontoart aus dem Prüfungskontenplan: Reihenfolge der Bilanzliste = Aktiven bis Patente, danach Passiven.
+// Wertberichtigungen sind Minus-Aktivkonten. Erfolg: Erlöse/Ertrag/Gewinne = Ertrag, sonst Aufwand.
+function kontoArt(name) {
+  const k = normKonto(name);
+  const b = KONTENPLAN.bilanz.indexOf(k);
+  if (b >= 0) {
+    if (/^Wertberichtigung/.test(k)) return 'minusaktiv';
+    return b <= KONTENPLAN.bilanz.indexOf('Patente') ? 'aktiv' : 'passiv';
+  }
+  if (!KONTENPLAN.erfolg.includes(k) || /^Jahresgewinn|^Bestandesänderung/.test(k)) return null;
+  return /erlöse|ertrag|^Eigenleistungen|^Gewinne aus/i.test(k) ? 'ertrag' : 'aufwand';
+}
+
+// Was eine Buchungszeile bewirkt (für die T-Konten-Ansicht). Minus-Aktivkonten wirken auf den Nettowert
+// des Vermögens wie Aktivkonten: im Soll steigt er, im Haben sinkt er.
+function buchungsWirkung(soll, haben) {
+  const art = (n) => { const a = kontoArt(n); return a === 'minusaktiv' ? 'aktiv' : a; };
+  const s = art(soll), h = art(haben);
+  const seite = {
+    soll: { aktiv: 'Vermögen nimmt zu', passiv: 'Schulden/Eigenkapital nehmen ab', aufwand: 'Aufwand nimmt zu → Gewinn sinkt', ertrag: 'Ertrag nimmt ab → Gewinn sinkt' },
+    haben: { aktiv: 'Vermögen nimmt ab', passiv: 'Schulden/Eigenkapital nehmen zu', aufwand: 'Aufwand nimmt ab → Gewinn steigt', ertrag: 'Ertrag nimmt zu → Gewinn steigt' },
+  };
+  const bilanz = (a) => a === 'aktiv' || a === 'passiv';
+  let titel = 'Buchung';
+  if (s === 'aktiv' && h === 'aktiv') titel = 'Aktivtausch';
+  else if (s === 'passiv' && h === 'passiv') titel = 'Passivtausch';
+  else if (s === 'aktiv' && h === 'passiv') titel = 'Bilanzverlängerung';
+  else if (s === 'passiv' && h === 'aktiv') titel = 'Bilanzverkürzung';
+  else if (s && h && !(bilanz(s) && bilanz(h))) {
+    const plus = (s === 'ertrag' ? -1 : s === 'aufwand' ? -1 : 0) + (h === 'ertrag' ? 1 : h === 'aufwand' ? 1 : 0);
+    titel = plus > 0 ? 'Erfolgswirksam: Gewinn steigt' : plus < 0 ? 'Erfolgswirksam: Gewinn sinkt' : 'Erfolgskonten unter sich';
+  }
+  return { titel, soll: s ? seite.soll[s] : '', haben: h ? seite.haben[h] : '' };
+}
+
+// Sicherheit vor dem Aufdecken (Wunsch 18.11.): falsch trotz „sicher“ = Denkfehler, zählt wie „schwer“
+const SICHER = [['sicher', 'sicher'], ['unsicher', 'unsicher'], ['geraten', 'geraten']];
+function sicherFalsch(einheit, z) {
+  let n = 0;
+  einheit.schritte.forEach((s, si) => {
+    for (const fall of s.faelle || []) {
+      const e = (z.ergebnisse || {})[`${si}.${fall.id}`];
+      if (e && e.sicher === 'sicher' && e.wert != null && e.wert < 0.5) n += 1;
+    }
+  });
+  return n;
+}
+
 // ── Mathe: Zahlen lesen und prüfen ── (rein)
 // „−2“, „1'234.50“, „1 234,5“, „CHF 1'200.–“, „3/4“, „4,5 %“ → Zahl; sonst null
 function leseZahl(s) {
@@ -526,7 +606,9 @@ function fortschrittZeile(einheit, z, datumISO) {
   const soll = einheit.schritte.reduce((a, s) => a + s.soll, 0);
   const q = trefferQuote(einheit, z);
   const quote = q ? ` · ${q.prozent} % richtig (${q.richtig}/${q.anzahl})` : '';
-  return `| ${d}.${m}. | ${einheit.thema} | Lerneinheit | ${ist} min (Soll ${soll})${quote} | ${z.einschaetzung} |`;
+  const irrtum = sicherFalsch(einheit, z);
+  const denk = irrtum ? ` · ${irrtum}× sicher falsch` : '';
+  return `| ${d}.${m}. | ${einheit.thema} | Lerneinheit | ${ist} min (Soll ${soll})${quote}${denk} | ${z.einschaetzung} |`;
 }
 
 // ── Aufgaben-Uhr ── für Karten ohne Lerneinheit (Videos, Lesen, Aufträge); läuft in der Statusleiste
@@ -836,6 +918,8 @@ function punkteZeile(z) {
   if (quote) p = Math.min(p, Number(quote[1]));
   // Mathe: mit Tipp gelöst zählt höchstens wie „schwer“ – an der Prüfung gibt es keine Tipps
   if (/mit Hilfe/.test(z.material)) p = Math.min(p, PUNKTE.schwer);
+  // Sicher, aber falsch = Denkfehler: höchstens „schwer“, damit das Thema früher wiederkommt
+  if (/sicher falsch/.test(z.material)) p = Math.min(p, PUNKTE.schwer);
   return p;
 }
 
@@ -1843,7 +1927,7 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
     if (s.einleitung) this.md(el.appendChild(h('div', 'fle-md fle-einleitung')), s.einleitung);
     for (const fall of s.faelle) {
       const key = `${si}.${fall.id}`;
-      const box = el.appendChild(h('section', 'fle-fall'));
+      const box = el.appendChild(h('section', 'fle-fall' + (this.frisch === key ? ' fle-frisch' : '')));
       const kopf = box.appendChild(h('div', 'fle-fall-kopf'));
       kopf.appendChild(h('span', 'fle-fall-id', `${fall.id})`));
       if (this.pruefung) kopf.appendChild(h('span', 'fle-fall-punkte', `${fall.punkte} P`));
@@ -1851,8 +1935,10 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
       if (!this.pruefung) this.baueBezug(box, si, fall);
 
       this.baueTyp(box, fall, key);
+      this.baueSicher(box, key);
       this.baueZwilling(box, fall, key);
     }
+    this.frisch = null;   // nur der eben aufgedeckte Fall animiert, nicht jedes Neuzeichnen
     if (this.e.modul === 'mathe') return;
     // Vorschläge für die Kontofelder, einmal pro Ansicht
     const dl = el.appendChild(h('datalist'));
@@ -1872,12 +1958,50 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
   baueZwilling(box, fall, key) {
     if (this.pruefung || !fall.zwilling) return;
     const e = (this.z.ergebnisse || {})[key];
-    if (!this.z.aufgedeckt.includes(key) || !e || e.wert == null || e.wert >= 1) return;
-    const zw = box.appendChild(h('section', 'fle-zwilling'));
+    if (!this.z.aufgedeckt.includes(key) || !e || e.wert == null) return;
+    if (e.wert >= 1 && e.sicher !== 'geraten') return;   // richtig geraten bekommt auch einen Zwilling
+    const zw = box.appendChild(h('section', 'fle-zwilling' + (this.frisch === `${key}~z` ? ' fle-frisch' : '')));
     zw.appendChild(h('div', 'fle-zwilling-titel', '🔁 Nochmals mit neuen Zahlen'));
     zw.appendChild(h('div', 'fle-leise', 'Gleiche Aufgabe, andere Zahlen. So merkst du sofort, ob der Fehler jetzt sitzt.'));
     this.md(zw.appendChild(h('div', 'fle-md')), fall.zwilling.text);
     this.baueTyp(zw, fall.zwilling, `${key}~z`);
+    this.baueSicher(zw, `${key}~z`);
+  }
+
+  // Vor dem Aufdecken: Wie sicher bist du? Danach ein Hinweis bei „sicher, aber falsch“ oder „richtig geraten“.
+  baueSicher(box, key) {
+    if (this.pruefung) return;
+    const z = this.z;
+    const eigen = (el) => el.closest('.fle-zwilling, .fle-fall') === box;
+    if (z.aufgedeckt.includes(key)) {
+      const e = (z.ergebnisse || {})[key] || {};
+      const erg = [...box.querySelectorAll('.fle-ergebnis')].find(eigen);
+      if (!erg || e.wert == null) return;
+      let text = '';
+      if (e.sicher === 'sicher' && e.wert < 0.5) text = '⚠ Sicher, aber falsch: ein Denkfehler. Lies das Warum genau. Das Thema kommt dafür früher wieder.';
+      else if (e.sicher === 'geraten' && e.wert >= 1) text = '🎲 Richtig geraten. Das zählt, aber übe es unten nochmals.';
+      else if (e.sicher === 'sicher' && e.wert >= 1) text = '💪 Sicher und richtig. Das sitzt.';
+      if (text) erg.insertAdjacentElement('afterend', h('div', 'fle-sicher-hinweis' + (e.wert < 0.5 ? ' is-warnung' : ''), text));
+      return;
+    }
+    const knopf = [...box.querySelectorAll('button')].find((b) => b.textContent === 'Lösung zeigen' && eigen(b));
+    if (!knopf) return;
+    const ziel = knopf.closest('.fle-aktionen, .fle-loesung') || knopf;
+    const reihe = h('div', 'fle-sicher');
+    reihe.dataset.sicher = key;
+    reihe.appendChild(h('span', 'fle-leise', 'Vor dem Aufdecken: Wie sicher bist du?'));
+    const wahl = (z.sicher || {})[key];
+    for (const [wert, text] of SICHER) {
+      const b = reihe.appendChild(h('button', 'fle-btn fle-btn-leise fle-sicher-btn' + (wahl === wert ? ' is-an' : ''), text));
+      b.setAttribute('aria-pressed', String(wahl === wert));
+      b.onclick = () => {
+        this.z.sicher = { ...(this.z.sicher || {}), [key]: wert };
+        this.plugin.speichere();
+        reihe.querySelectorAll('.fle-sicher-btn').forEach((x) => { const an = x === b; x.classList.toggle('is-an', an); x.setAttribute('aria-pressed', String(an)); });
+        reihe.classList.remove('is-mahnen');
+      };
+    }
+    ziel.parentElement.insertBefore(reihe, ziel);
   }
 
   baueBuchung(box, fall, key) {
@@ -1913,6 +2037,7 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
         b.onclick = () => this.deckeAuf(key, bewerteBuchung(zeilen, fall.loesung));
       } else {
         this.zeigeErgebnis(loes, key);
+        this.zeigeDiagnose(loes, tbody, zeilen, fall.loesung);
         loes.appendChild(h('div', 'fle-label', 'Lösung'));
         if (!fall.loesung.length) loes.appendChild(h('div', 'fle-md', 'Keine Buchung nötig.'));
         else {
@@ -1925,9 +2050,79 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
             tr.appendChild(h('td', null, so)); tr.appendChild(h('td', null, ha));
             tr.appendChild(h('td', 'is-betrag', typeof be === 'number' ? betrag(be) : String(be)));
           }
+          this.baueTKonten(loes, fall.loesung);
         }
         if (fall.warum) this.md(loes.appendChild(h('div', 'fle-md fle-warum')), fall.warum);
       }
+  }
+
+  // Fehler genau zeigen: Felder der eigenen Buchung einfärben und pro Zeile sagen, was nicht stimmt
+  zeigeDiagnose(loes, tbody, zeilen, loesung) {
+    const dg = buchungsDiagnose(zeilen, loesung);
+    const trs = [...tbody.children];
+    trs.forEach((tr) => tr.querySelectorAll('input').forEach((i) => { i.readOnly = true; }));
+    const MARK = { ok: [1, 1, 1], betrag: [1, 1, 0], soll: [0, 1, 1], haben: [1, 0, 1], vertauscht: [0, 0, 1], konten: [0, 0, 1], extra: [0, 0, 0] };
+    const liste = h('ul', 'fle-diagnose');
+    let n = 0;
+    const zeile = (cls, text) => { const li = liste.appendChild(h('li', cls, text)); li.style.animationDelay = `${n++ * 120}ms`; };
+    for (const d of dg.zeilen) {
+      const tr = trs[d.i];
+      if (tr) {
+        tr.classList.add(`fle-z-${d.status}`);
+        tr.querySelectorAll('input').forEach((inp, c) => inp.classList.add(MARK[d.status][c] ? 'is-ok' : 'is-fehler'));
+      }
+      const nr = `Zeile ${d.i + 1}`;
+      const r = d.soll;
+      if (d.status === 'ok') zeile('is-ok', `✓ ${nr} stimmt.`);
+      else if (d.status === 'betrag') zeile('is-teil', `◐ ${nr}: Konten richtig, Betrag falsch (richtig: ${betrag(Number(r[2]))}).`);
+      else if (d.status === 'soll') zeile('is-fehler', `✗ ${nr}: Soll-Konto falsch (richtig: ${r[0]}).`);
+      else if (d.status === 'haben') zeile('is-fehler', `✗ ${nr}: Haben-Konto falsch (richtig: ${r[1]}).`);
+      else if (d.status === 'vertauscht') zeile('is-fehler', `✗ ${nr}: Soll und Haben vertauscht.`);
+      else if (d.status === 'konten') zeile('is-fehler', `✗ ${nr}: Betrag passt, aber beide Konten sind falsch (richtig: ${r[0]} / ${r[1]}).`);
+      else zeile('is-fehler', `✗ ${nr}: unnötige Zeile. An der Prüfung gibt das Abzug.`);
+    }
+    for (const f of dg.fehlend) zeile('is-fehler', `✗ Fehlt: ${f[0]} / ${f[1]} ${typeof f[2] === 'number' ? betrag(f[2]) : f[2]}`);
+    if (n) loes.appendChild(liste);
+  }
+
+  // Buchung als T-Konten: Beträge fliegen ins Soll bzw. Haben, darunter die Wirkung jeder Zeile
+  baueTKonten(el, loesung) {
+    const box = el.appendChild(h('div', 'fle-tkonten-box'));
+    box.appendChild(h('div', 'fle-label', 'So wirkt die Buchung'));
+    const konten = new Map();
+    const ART = { aktiv: 'Aktivkonto', minusaktiv: 'Minus-Aktivkonto', passiv: 'Passivkonto', aufwand: 'Aufwandkonto', ertrag: 'Ertragskonto' };
+    loesung.forEach(([so, ha, be], i) => {
+      for (const [name, seite] of [[so, 'soll'], [ha, 'haben']]) {
+        const k = normKonto(name);
+        if (!konten.has(k)) konten.set(k, { name, soll: [], haben: [] });
+        konten.get(k)[seite].push({ be, i });
+      }
+    });
+    const reihe = box.appendChild(h('div', 'fle-tkonten'));
+    for (const [k, t] of konten) {
+      const art = kontoArt(k);
+      const tk = reihe.appendChild(h('div', `fle-t is-${art || 'neutral'}`));
+      tk.appendChild(h('div', 'fle-t-name', t.name));
+      if (art) tk.appendChild(h('div', 'fle-t-art', ART[art]));
+      const koerper = tk.appendChild(h('div', 'fle-t-koerper'));
+      for (const seite of ['soll', 'haben']) {
+        const sp = koerper.appendChild(h('div', `fle-t-seite is-${seite}`));
+        sp.appendChild(h('div', 'fle-t-kopf', seite === 'soll' ? 'Soll' : 'Haben'));
+        for (const { be, i } of t[seite]) {
+          const b = sp.appendChild(h('div', 'fle-t-betrag', typeof be === 'number' ? betrag(be) : String(be)));
+          b.style.animationDelay = `${150 + i * 450}ms`;
+        }
+      }
+    }
+    const wirkung = box.appendChild(h('ol', 'fle-wirkung'));
+    loesung.forEach(([so, ha], i) => {
+      const w = buchungsWirkung(so, ha);
+      const li = wirkung.appendChild(h('li'));
+      li.style.animationDelay = `${350 + i * 450}ms`;
+      li.appendChild(h('b', null, w.titel));
+      const teile = [w.soll && `${so}: ${w.soll}`, w.haben && `${ha}: ${w.haben}`].filter(Boolean);
+      if (teile.length) li.appendChild(h('span', 'fle-leise', ` · ${teile.join(' · ')}`));
+    });
   }
 
   // Rechen- oder Textfrage: eigenes Textfeld, beim Aufdecken die Musterantwort
@@ -2059,7 +2254,21 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
       b.appendChild(h('span', 'fle-label', i === 0 ? 'Tipp 1 · Situation' : 'Tipp 2 · Spick'));
       this.md(b.appendChild(h('div', 'fle-md')), t);
     });
+    // Lösungsweg Schritt für Schritt (Wunsch 18.11.): einzelne Schritte vor dem Aufdecken, der letzte bleibt zu
+    const wegTeil = !offen && !this.pruefung && Array.isArray(fall.weg) && fall.weg.length >= 2;
+    const wegK = wegTeil ? Math.min((z.wegStufe || {})[key] || 0, fall.weg.length - 1) : 0;
+    if (wegTeil && wegK) {
+      const wb = box.appendChild(h('div', 'fle-weg-teil'));
+      wb.appendChild(h('div', 'fle-label', `Lösungsweg, ${wegK} von ${fall.weg.length} Schritten`));
+      const ol = wb.appendChild(h('ol', 'fle-weg'));
+      fall.weg.slice(0, wegK).forEach((w, i) => { const li = ol.appendChild(h('li', i === wegK - 1 ? 'is-neu' : '')); this.md(li, w); });
+      wb.appendChild(h('div', 'fle-leise', 'Versuch jetzt selbst weiter und gib dann deine Antwort ein.'));
+    }
     const aktionen = box.appendChild(h('div', 'fle-aktionen'));
+    if (wegTeil && wegK < fall.weg.length - 1) {
+      const wbtn = aktionen.appendChild(h('button', 'fle-btn fle-btn-leise', wegK ? 'Nächsten Schritt zeigen' : 'Ersten Schritt des Lösungswegs zeigen'));
+      wbtn.onclick = () => { this.autoStart(); this.merkeStart(key); this.frisch = key; this.setze({ ...this.z, wegStufe: { ...(this.z.wegStufe || {}), [key]: wegK + 1 } }); this.baue(); };
+    }
     if (!offen) {
       if (!this.pruefung && stufe < Math.min(2, (fall.hilfe || []).length)) {
         const tb = aktionen.appendChild(h('button', 'fle-btn fle-btn-leise', stufe === 0 ? 'Tipp: Was für eine Situation?' : 'Tipp: Welcher Spick-Abschnitt?'));
@@ -2074,7 +2283,7 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
       const loes = box.appendChild(h('div', 'fle-loesung'));
       this.zeigeErgebnis(loes, key);
       const e = (this.z.ergebnisse || {})[key] || {};
-      if (!this.pruefung) loes.appendChild(h('div', 'fle-leise fle-allein', e.leer ? 'Lösung ohne eigene Antwort angesehen' : e.hilfe ? `mit Hilfe (Tipp ${e.hilfe})` : 'allein gelöst'));
+      if (!this.pruefung) loes.appendChild(h('div', 'fle-leise fle-allein', e.leer ? 'Lösung ohne eigene Antwort angesehen' : e.weg ? `mit Hilfe (${e.weg} Schritt${e.weg > 1 ? 'e' : ''} des Lösungswegs${e.hilfe > e.weg ? ', Tipp ' + (e.hilfe - e.weg) : ''})` : e.hilfe ? `mit Hilfe (Tipp ${e.hilfe})` : 'allein gelöst'));
       loes.appendChild(h('div', 'fle-label', 'Lösung'));
       const zahlText = (menge ? fall.zahl : [fall.zahl]).map((x) => betrag(x)).join('; ');
       loes.appendChild(h('div', 'fle-zahl-loesung', `${zahlText}${fall.einheit ? ' ' + fall.einheit : ''}${fall.prozent ? ' %' : ''}`));
@@ -2120,12 +2329,21 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
   // Aufdecken friert das Ergebnis ein: Abschreiben danach ändert nichts mehr
   deckeAuf(key, wert) {
     const z = this.z;
+    if (!this.pruefung && !istLeer((z.eingaben || {})[key]) && !(z.sicher || {})[key]) {
+      new obsidian.Notice('Zuerst kurz antippen: Wie sicher bist du?');
+      const r = this.root && [...this.root.querySelectorAll('.fle-sicher')].find((x) => x.dataset.sicher === key);
+      if (r) { r.classList.remove('is-mahnen'); void r.offsetWidth; r.classList.add('is-mahnen'); }
+      return;
+    }
     z.uhr = { ...(z.uhr || {}), [key]: this.laufendeSekunden(Number(key.split('.')[0])) };
     const sek = fallSekunden(z, key);
     const a = new Set(z.aufgedeckt); a.add(key);
-    const hilfe = (z.hilfe || {})[key] || 0;
+    const weg = (z.wegStufe || {})[key] || 0;
+    const hilfe = ((z.hilfe || {})[key] || 0) + weg;
     const leer = istLeer((z.eingaben || {})[key]);
-    this.setze({ ...z, aufgedeckt: [...a], ergebnisse: { ...(z.ergebnisse || {}), [key]: { wert, sek, hilfe, ...(leer ? { leer: true } : {}) } } });
+    const sicher = leer ? null : (z.sicher || {})[key] || null;
+    this.frisch = key;
+    this.setze({ ...z, aufgedeckt: [...a], ergebnisse: { ...(z.ergebnisse || {}), [key]: { wert, sek, hilfe, ...(weg ? { weg } : {}), ...(sicher ? { sicher } : {}), ...(leer ? { leer: true } : {}) } } });
     this.baue();
   }
 
@@ -4211,6 +4429,7 @@ class FaLerneinheit extends obsidian.Plugin {
 
 module.exports = FaLerneinheit;
 module.exports.logik = { bezuege, zeitSchritt, modulAusPfad, zeitDazu, mischeZeit, wochenzielFuer, auswahlWahl, bewerteKprim, bewerteAuswahl, kprimWahl, videosFuer, ERKLAERVIDEOS, folgtHinweis, kw,unterlagenGruppen, wiederholKarte, quizListe, themaMitQuiz, NEUE_MODULE, tafelSpalte, hakeAb, naechsteSiebenMitRest, UNTERLAGEN, PRUEFUNG, pruefungsSatz, modulDateien, letzteRunde, naechsteSieben, erledigtListe, fakten, fahrplanKennzahlen, hochrechnung, leseBoard, etappeHeute, lernMinuten, wocheVon, serie, tagesziel, MODUL_SPALTEN, pruefTempo, bewerteBuchung, prozentFuerMit, uebernahmeAblauf, istVorschlagSeite, pdfSeiten, pruefeSpick, spickAenderungen, uebernimmVorschlag, spickHtml, SPICK_MAX_ZEICHEN, noteMit, naechsteTodos, matheZeilen, cfgFuer, MODULE, leseZahl, leseZahlen, pruefeZahl, pruefeMenge, pruefeEinheit, KONTENPLAN, EINSCHAETZUNGEN, istKonto,
+  buchungsDiagnose, kontoArt, buchungsWirkung, sicherFalsch,
   neuerZustand, starte, stoppeLaufenden, istWackelig, MAX_LAUF_S, stoppeNachAbsturz, nachPause, fallSekunden, matheEinheitZeile, uhrSek, uhrPause, setzeZeit,
   hakeKarteAb, fortschrittZeile, setzeFortschritt, pruefungsErgebnis, restSekunden, freischaltung, normKonto, leseBetrag, pruefeBuchung, trefferQuote,
   leseFortschritt, punkteZeile, themaStatus, sollAm, sollStoff, unterrichtVon, niveauAus, druckStufe, noteAus, pruefungsInfo, setzePlanWert, prozentFuer, statusAus, pruefeFahrplan, setzeWiederholung, tageBis, setzeDatum, etappeTitel, weichTrennen };

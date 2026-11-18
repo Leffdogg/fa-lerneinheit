@@ -984,3 +984,61 @@
 .flz-jetzt-titel { font-size: 15.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .flz-jetzt .flz-btn { margin: 0; }
 .flz-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ── Lernhilfen 18.11.: Sicherheit, Fehler genau, T-Konten, Lösungsweg schrittweise ── */
+.fle-sicher { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0 4px; }
+.fle-sicher-btn.is-an { background: var(--interactive-accent); color: var(--text-on-accent); }
+.fle-sicher.is-mahnen { animation: fle-mahnen 0.5s ease 2; border-radius: 6px; outline: 2px solid rgba(var(--color-orange-rgb), 0.7); outline-offset: 3px; }
+@keyframes fle-mahnen { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+.fle-sicher-hinweis { margin: 2px 0 8px; padding: 4px 10px; border-radius: 6px; font-size: var(--font-ui-small); background: rgba(var(--color-green-rgb), 0.1); }
+.fle-frisch .fle-sicher-hinweis { animation: fle-auf 0.35s ease both; }
+.fle-sicher-hinweis.is-warnung { background: rgba(var(--color-red-rgb), 0.12); font-weight: 600; }
+
+.fle-frisch .fle-ergebnis { animation: fle-pop 0.35s cubic-bezier(.2,1.6,.4,1) both; }
+@keyframes fle-pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes fle-auf { from { transform: translateY(6px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.fle-tabelle input.is-ok { background: rgba(var(--color-green-rgb), 0.14); }
+.fle-tabelle input.is-fehler { background: rgba(var(--color-red-rgb), 0.16); text-decoration: line-through; text-decoration-color: rgba(var(--color-red-rgb), 0.6); }
+.fle-tabelle input.is-fehler:placeholder-shown { text-decoration: none; }
+.fle-tabelle tr.fle-z-extra input { opacity: 0.7; }
+.fle-diagnose { margin: 4px 0 10px; padding-left: 0; list-style: none; font-size: var(--font-ui-small); }
+.fle-diagnose li { padding: 2px 8px; margin: 2px 0; border-left: 3px solid; border-radius: 3px; }
+.fle-frisch .fle-diagnose li { animation: fle-auf 0.3s ease both; }
+.fle-diagnose li.is-ok { border-color: var(--color-green); }
+.fle-diagnose li.is-teil { border-color: var(--color-yellow); background: rgba(var(--color-yellow-rgb), 0.08); }
+.fle-diagnose li.is-fehler { border-color: var(--color-red); background: rgba(var(--color-red-rgb), 0.08); }
+
+.fle-tkonten-box { margin: 10px 0; }
+.fle-tkonten { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0 6px; }
+.fle-t { min-width: 150px; flex: 1 1 150px; max-width: 240px; border-radius: 6px; padding: 4px 6px 6px; background: var(--background-secondary); }
+.fle-t-name { font-weight: 600; text-align: center; font-size: var(--font-ui-small); }
+.fle-t-art { text-align: center; font-size: 0.75em; color: var(--text-muted); margin-bottom: 2px; }
+.fle-t.is-aktiv .fle-t-art, .fle-t.is-minusaktiv .fle-t-art { color: var(--color-blue); }
+.fle-t.is-passiv .fle-t-art { color: var(--color-purple); }
+.fle-t.is-aufwand .fle-t-art { color: var(--color-red); }
+.fle-t.is-ertrag .fle-t-art { color: var(--color-green); }
+.fle-t-koerper { display: grid; grid-template-columns: 1fr 1fr; border-top: 2px solid var(--text-normal); }
+.fle-t-seite { min-height: 2.2em; padding: 2px 6px; }
+.fle-t-seite.is-soll { border-right: 2px solid var(--text-normal); }
+.fle-t-kopf { font-size: 0.7em; color: var(--text-faint); }
+.fle-t-seite.is-haben .fle-t-kopf, .fle-t-seite.is-haben .fle-t-betrag { text-align: right; }
+.fle-t-betrag { font-variant-numeric: tabular-nums; font-weight: 600; border-radius: 4px; }
+.fle-frisch .fle-t-betrag { animation: fle-flug 0.55s ease both; }
+.fle-t-seite.is-soll .fle-t-betrag { --fle-von: -28px; }
+.fle-t-seite.is-haben .fle-t-betrag { --fle-von: 28px; }
+@keyframes fle-flug {
+  0% { transform: translate(var(--fle-von), -10px); opacity: 0; background: rgba(var(--color-yellow-rgb), 0.5); }
+  70% { opacity: 1; background: rgba(var(--color-yellow-rgb), 0.35); }
+  100% { transform: none; opacity: 1; background: transparent; }
+}
+.fle-wirkung { margin: 2px 0 6px; padding-left: 1.4em; font-size: var(--font-ui-small); }
+.fle-frisch .fle-wirkung li { animation: fle-auf 0.35s ease both; }
+
+.fle-weg-teil { margin: 8px 0; padding: 6px 10px; border-radius: 6px; background: var(--background-secondary); }
+.fle-frisch .fle-weg-teil li.is-neu { animation: fle-auf 0.35s ease both; }
+.fle-weg-teil li.is-neu { background: rgba(var(--color-yellow-rgb), 0.12); border-radius: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fle-sicher.is-mahnen, .fle-sicher-hinweis, .fle-ergebnis, .fle-diagnose li, .fle-t-betrag, .fle-wirkung li, .fle-weg-teil li.is-neu { animation: none !important; }
+}
