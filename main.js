@@ -307,7 +307,9 @@ function pruefeEinheit(obj) {
       for (const [j, fall] of s.faelle.entries()) {
         const wf = `${wo}, Fall ${fall && fall.id || j + 1}`;
         if (!fall || !fall.id || !fall.text) return f(`${wf}: „id“ und „text“ sind Pflicht.`);
-        if (modul === 'mathe') {
+        // Mathe mit A–D (seit 18.11., Vorbild Bonustest) läuft unten durch die Auswahl, braucht aber die Aufgabenart
+        if (modul === 'mathe' && fall.optionen != null && !(fall.aufgabenart || s.aufgabenart)) return f(`${wf}: Feld „aufgabenart“ fehlt (am Fall oder am Schritt).`);
+        if (modul === 'mathe' && fall.optionen == null) {
           // Mathe: Zahl(en) automatisch geprüft oder Text selbst bewertet; immer mit Aufgabenart
           const aufgabenart = fall.aufgabenart || s.aufgabenart;
           if (!aufgabenart) return f(`${wf}: Feld „aufgabenart“ fehlt (am Fall oder am Schritt).`);
@@ -344,7 +346,7 @@ function pruefeEinheit(obj) {
           if (!richtig.length || richtig.some((b) => b.length !== 1 || !erlaubt.includes(b))) {
             return f(`${wf}: „richtig“ muss ein Buchstabe ${erlaubt[0]}–${erlaubt[erlaubt.length - 1]} sein (oder eine Liste davon).`);
           }
-          neu.faelle.push({ ...fall, id: String(fall.id), optionen: fall.optionen.map(String), richtig, mehrfach, art: 'auswahl' });
+          neu.faelle.push({ ...fall, id: String(fall.id), optionen: fall.optionen.map(String), richtig, mehrfach, art: 'auswahl', ...(modul === 'mathe' ? { aufgabenart: String(fall.aufgabenart || s.aufgabenart) } : {}) });
           continue;
         }
         // Gesuchte Zahl (seit 15.11.2026): ein Zahlenfeld mit Einheit,
@@ -371,6 +373,20 @@ function pruefeEinheit(obj) {
     }
     if (tempo) neu.soll = pruefTempo(neu.faelle);
     schritte.push(neu);
+  }
+  // Zwillingsaufgabe: wird wie ein eigener Fall geprüft (gleiche Regeln, gleiches Modul), ohne eigenen Zwilling
+  for (const [si, s] of schritte.entries()) for (const [j, fall] of (s.faelle || []).entries()) {
+    if (fall.zwilling == null) continue;
+    const wf = `Schritt ${si + 1}, Fall ${fall.id}, Zwilling`;
+    if (obj.modus === 'pruefung') return f(`${wf}: In einer Probeprüfung gibt es keine Zwillinge.`);
+    if (typeof fall.zwilling !== 'object' || Array.isArray(fall.zwilling)) return f(`${wf}: muss ein Fall sein (text plus Lösung).`);
+    const roh = { ...fall.zwilling, id: `${fall.id}~z`, aufgabenart: fall.zwilling.aufgabenart || fall.aufgabenart, hilfe: fall.zwilling.hilfe || fall.hilfe, bezug: [] };
+    delete roh.zwilling;
+    const mini = pruefeEinheit({ id: 'zwilling', thema: obj.thema, modul, schritte: [{ art: 'aufgabe', titel: 'Zwilling', soll: 1, faelle: [roh] }] });
+    if (!mini.ok) return f(`${wf}: ${String(mini.fehler).replace(/^Schritt 1, Fall [^:]*: /, '')}`);
+    const zw = mini.einheit.schritte[0].faelle[0];
+    if (zw.art !== fall.art) return f(`${wf}: muss dieselbe Art haben wie der Fall (${fall.art}, nicht ${zw.art}).`);
+    s.faelle[j] = { ...fall, zwilling: zw };
   }
   // Probeprüfung: Countdown statt Timer, jeder Fall braucht Punkte
   if (obj.modus === 'pruefung') {
@@ -844,7 +860,7 @@ function matheZeilen(einheit, z, datumISO) {
       const key = `${si}.${fall.id}`;
       const e = (z.ergebnisse || {})[key];
       let w = e && e.wert != null ? e.wert : null;
-      if (w === null) w = istLeer((z.eingaben || {})[key]) ? 0 : fall.art === 'zahl' ? pruefeZahlFall(z.eingaben[key], fall) : 0;
+      if (w === null) w = istLeer((z.eingaben || {})[key]) ? 0 : fall.art === 'zahl' ? pruefeZahlFall(z.eingaben[key], fall) : istKreuz(fall) ? bewerteKreuz(z.eingaben[key], fall) : 0;
       const hilfe = (e && e.hilfe) || ((z.hilfe || {})[key] || 0);
       const leer = istLeer((z.eingaben || {})[key]);
       const wie = e && e.leer ? 'Lösung angesehen'
@@ -1834,10 +1850,38 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
       this.md(kopf.appendChild(h('div', 'fle-md')), fall.text);
       if (!this.pruefung) this.baueBezug(box, si, fall);
 
+      this.baueTyp(box, fall, key);
+      this.baueZwilling(box, fall, key);
+    }
+    if (this.e.modul === 'mathe') return;
+    // Vorschläge für die Kontofelder, einmal pro Ansicht
+    const dl = el.appendChild(h('datalist'));
+    dl.id = 'fle-konten';
+    for (const k of [...KONTENPLAN.bilanz, ...KONTENPLAN.erfolg]) dl.appendChild(h('option')).value = k;
+  }
+
+  baueTyp(box, fall, key) {
+    if (fall.art === 'antwort') return this.baueAntwort(box, fall, key);
+    if (fall.art === 'zahl') return this.baueZahl(box, fall, key);
+    if (istKreuz(fall)) return this.baueKreuz(box, fall, key);
+    return this.baueBuchung(box, fall, key);
+  }
+
+  // Zwillingsaufgabe (Wunsch 18.11., Vorbild: Mathe-Bonustest in 12 Versionen): Ist der Fall aufgedeckt und
+  // nicht ganz richtig, erscheint dieselbe Aufgabe mit neuen Zahlen. Zählt nicht in die Trefferquote.
+  baueZwilling(box, fall, key) {
+    if (this.pruefung || !fall.zwilling) return;
+    const e = (this.z.ergebnisse || {})[key];
+    if (!this.z.aufgedeckt.includes(key) || !e || e.wert == null || e.wert >= 1) return;
+    const zw = box.appendChild(h('section', 'fle-zwilling'));
+    zw.appendChild(h('div', 'fle-zwilling-titel', '🔁 Nochmals mit neuen Zahlen'));
+    zw.appendChild(h('div', 'fle-leise', 'Gleiche Aufgabe, andere Zahlen. So merkst du sofort, ob der Fehler jetzt sitzt.'));
+    this.md(zw.appendChild(h('div', 'fle-md')), fall.zwilling.text);
+    this.baueTyp(zw, fall.zwilling, `${key}~z`);
+  }
+
+  baueBuchung(box, fall, key) {
       const z = this.z;
-      if (fall.art === 'antwort') { this.baueAntwort(box, fall, key); continue; }
-      if (fall.art === 'zahl') { this.baueZahl(box, fall, key); continue; }
-      if (istKreuz(fall)) { this.baueKreuz(box, fall, key); continue; }
       const zeilen = z.eingaben[key] || Array.from({ length: fall.zeilen }, () => ['', '', '']);
       const tab = box.appendChild(h('table', 'fle-tabelle'));
       const tr0 = tab.appendChild(h('thead')).appendChild(h('tr'));
@@ -1884,12 +1928,6 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
         }
         if (fall.warum) this.md(loes.appendChild(h('div', 'fle-md fle-warum')), fall.warum);
       }
-    }
-    if (this.e.modul === 'mathe') return;
-    // Vorschläge für die Kontofelder, einmal pro Ansicht
-    const dl = el.appendChild(h('datalist'));
-    dl.id = 'fle-konten';
-    for (const k of [...KONTENPLAN.bilanz, ...KONTENPLAN.erfolg]) dl.appendChild(h('option')).value = k;
   }
 
   // Rechen- oder Textfrage: eigenes Textfeld, beim Aufdecken die Musterantwort

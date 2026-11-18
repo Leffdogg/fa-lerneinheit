@@ -893,6 +893,9 @@
 .fle-bezug { border-left: 3px solid var(--interactive-accent); background: var(--background-secondary); border-radius: 6px; padding: 6px 10px; font-size: 0.9em; color: var(--text-muted); }
 .fle-bezug-titel { font-weight: 600; font-size: 0.85em; margin-bottom: 2px; }
 .fle-bezug .fle-md p { margin: 2px 0; }
+/* Zwillingsaufgabe: dieselbe Aufgabe mit neuen Zahlen, erscheint nach einem Fehler */
+.fle-zwilling { margin-top: 12px; border: 1px dashed var(--color-orange); border-radius: 8px; padding: 8px 12px; background: rgba(var(--color-orange-rgb), 0.06); }
+.fle-zwilling-titel { font-weight: 600; color: var(--color-orange); }
 .fle-bezug-loesung { margin-top: 4px; border-collapse: collapse; }
 .fle-bezug-loesung td { padding: 1px 12px 1px 0; }
 
