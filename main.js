@@ -209,20 +209,58 @@ function fehlerEintragen(fehler, e, heuteISO) {
   const id = fehlerId(e.einheit, e.si, e.fall);
   return { ...fehler, [id]: { ...(fehler || {})[id], ...e, datum: heuteISO, stufe: 0, faellig: plusTage(heuteISO, 1) } };
 }
-function fehlerNachUebung(fehler, id, richtig, heuteISO) {
+// Prüfungsanker (Wunsch 18.11., Prinzip „verteilen, am Prüfungsdatum ausrichten“): nichts wird erst nach der
+// letzten Woche vor der Prüfung fällig; alles kommt spätestens ANKER_TAGE vor der Prüfung noch einmal.
+const ANKER_TAGE = 5;
+function ankerFaellig(faellig, pruefungISO, heuteISO) {
+  if (!pruefungISO) return faellig;
+  const anker = plusTage(pruefungISO, -ANKER_TAGE);
+  if (heuteISO >= anker || faellig <= anker) return faellig;
+  return anker > heuteISO ? anker : plusTage(heuteISO, 1);
+}
+function fehlerNachUebung(fehler, id, richtig, heuteISO, pruefungISO = null) {
   const alt = (fehler || {})[id];
   if (!alt) return fehler;
   const neu = { ...fehler };
-  if (!richtig) { neu[id] = { ...alt, stufe: 0, faellig: plusTage(heuteISO, 1), zuletzt: heuteISO }; return neu; }
+  if (!richtig) { neu[id] = { ...alt, stufe: 0, faellig: ankerFaellig(plusTage(heuteISO, 1), pruefungISO, heuteISO), zuletzt: heuteISO }; return neu; }
   const stufe = (alt.stufe || 0) + 1;
-  if (stufe >= FEHLER_ABSTAND.length) { delete neu[id]; return neu; }   // dreimal richtig: sitzt
-  neu[id] = { ...alt, stufe, faellig: plusTage(heuteISO, FEHLER_ABSTAND[stufe]), zuletzt: heuteISO };
+  // Dreimal richtig: sitzt. Liegt die Prüfung noch vor dem Anker, kommt der Fall dort ein letztes Mal.
+  if (stufe >= FEHLER_ABSTAND.length) {
+    const anker = pruefungISO ? plusTage(pruefungISO, -ANKER_TAGE) : null;
+    if (anker && heuteISO < anker && !alt.schluss) { neu[id] = { ...alt, stufe, schluss: true, faellig: anker, zuletzt: heuteISO }; return neu; }
+    delete neu[id]; return neu;
+  }
+  neu[id] = { ...alt, stufe, faellig: ankerFaellig(plusTage(heuteISO, FEHLER_ABSTAND[stufe]), pruefungISO, heuteISO), zuletzt: heuteISO };
   return neu;
 }
+// Reihenfolge: zuerst Denkfehler (sicher, aber falsch), dann Begriffsfehler, dann nach Fälligkeit
+const fehlerRang = (e) => (e.sicher === 'sicher' ? 0 : 2) + (e.art === 'begriff' ? 0 : 1);
 const faelligeFehler = (fehler, heuteISO, modul = null) => Object.entries(fehler || {})
   .map(([id, e]) => ({ id, ...e }))
   .filter((e) => e.faellig <= heuteISO && (!modul || (e.modul || 'fa') === modul))
-  .sort((a, b) => a.faellig.localeCompare(b.faellig) || a.datum.localeCompare(b.datum));
+  .sort((a, b) => fehlerRang(a) - fehlerRang(b) || a.faellig.localeCompare(b.faellig) || a.datum.localeCompare(b.datum));
+// Fehlerart (Prinzip 6): was als Nächstes hilft
+const FEHLERARTEN = [
+  ['begriff', 'Begriff', 'Ich habe die Sache falsch verstanden', 'Lies das Warum oben in Ruhe. Die Wiederholung zeigt dir die Erklärung nochmals, bevor du rechnest.'],
+  ['verfahren', 'Verfahren', 'Schritt vergessen oder falsches Konto', 'Löse den Zwilling Schritt für Schritt und vergleiche jeden Schritt mit der Lösung.'],
+  ['fluechtig', 'Flüchtigkeit', 'Eigentlich gewusst, vertippt oder verrechnet', 'Prüfroutine vor dem Aufdecken: Soll = Haben? Betrag plausibel? Konto im Kontenplan? Gerundet wie verlangt?'],
+];
+// Kalibrierung (Prinzip 8): Wie oft stimmt es, wenn du „sicher“, „unsicher“ oder „geraten“ sagst? Über alle Aufgaben.
+function kalibrierung(einheiten) {
+  const out = { sicher: { n: 0, summe: 0 }, unsicher: { n: 0, summe: 0 }, geraten: { n: 0, summe: 0 } };
+  for (const z of Object.values(einheiten || {})) {
+    for (const [key, e] of Object.entries((z && z.ergebnisse) || {})) {
+      if (!e || e.wert == null || !out[e.sicher] || String(key).includes('~z')) continue;
+      out[e.sicher].n += 1; out[e.sicher].summe += e.wert;
+    }
+  }
+  for (const v of Object.values(out)) v.prozent = v.n ? Math.round((v.summe / v.n) * 100) : null;
+  return out;
+}
+const erstversuchQuote = (log) => {
+  const l = (log || []).slice(-40);
+  return l.length ? { n: l.length, prozent: Math.round((l.filter((x) => x.ok).length / l.length) * 100) } : null;
+};
 
 // ── Formel-Puzzle (Wunsch 18.11.) ── die auswendig zu lernenden Kennzahlen der Prüfungsinformation.
 // Ausgelassen, weil die Definition noch unklar ist (⚠ in der Notiz): ROIC (13), Leverage (18), Verschuldungsfaktor (21),
@@ -286,14 +324,16 @@ const FORMEL_ABSTAND = [1, 3, 7, 21];
 function formelnHeute(stand, heuteISO, erlaubt = null, maxNeu = 6) {
   const s = stand || {};
   const faellig = KENNZAHLEN.filter((k) => s[k.id] && s[k.id].faellig <= heuteISO);
-  const neu = KENNZAHLEN.filter((k) => !s[k.id] && (!erlaubt || erlaubt.includes(k.gruppe))).slice(0, maxNeu);
+  // höchstens maxNeu neue pro TAG (Korrektur 18.11.: vorher pro Runde). Alte Einträge ohne „seit“: Stufe 0 und heute geübt = heute neu
+  const neuHeute = Object.values(s).filter((x) => x && (x.seit ? x.seit === heuteISO : x.stufe === 0 && x.zuletzt === heuteISO)).length;
+  const neu = KENNZAHLEN.filter((k) => !s[k.id] && (!erlaubt || erlaubt.includes(k.gruppe))).slice(0, Math.max(0, maxNeu - neuHeute));
   return [...faellig, ...neu];
 }
-function formelNachUebung(stand, id, richtig, heuteISO) {
+function formelNachUebung(stand, id, richtig, heuteISO, pruefungISO = null) {
   const alt = (stand || {})[id] || { stufe: -1 };
   const stufe = richtig ? Math.min(alt.stufe + 1, FORMEL_ABSTAND.length - 1) : 0;
   const tage = richtig ? FORMEL_ABSTAND[stufe] : 1;
-  return { ...stand, [id]: { stufe, faellig: plusTage(heuteISO, tage), zuletzt: heuteISO } };
+  return { ...stand, [id]: { stufe, faellig: ankerFaellig(plusTage(heuteISO, tage), pruefungISO, heuteISO), zuletzt: heuteISO, seit: (stand || {})[id] ? ((stand[id].seit) || null) : heuteISO } };
 }
 // Unterrichtet = Fahrplan-Thema mit `unterricht` ≤ heute, dessen Name mit der Gruppe beginnt
 function formelGruppen(plan, heuteISO) {
@@ -1793,6 +1833,63 @@ const uhr = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 const heute = () => new Date().toLocaleDateString('sv-SE');   // YYYY-MM-DD in Ortszeit
 const betrag = (n) => Number(n).toLocaleString('de-CH', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
+// ── Einheitlicher Stil (18.11.): Ergebnis-Zeichen werden zu Lucide-Icons ──
+const GLYPH_IKON = { '✓': 'check', '✗': 'x', '◐': 'circle-dot', '⚠': 'alert-triangle' };
+const GLYPH_ZIEL = '.fle-ergebnis, .fle-diagnose li, .fle-wirkung-ok, .fle-sicher-hinweis, .fle-puzzle-urteil, .fle-tempo-text, .fle-kreuz-warum p, .fle-kreuz-warum';
+function glyphenZuIkonen(root) {
+  for (const el of root.querySelectorAll(GLYPH_ZIEL)) {
+    const t = el.firstChild;
+    if (!t || t.nodeType !== 3) continue;
+    const m = /^\s*([✓✗◐⚠])\s*/.exec(t.textContent);
+    if (!m) continue;
+    t.textContent = t.textContent.slice(m[0].length);
+    const i = h('span', 'fle-ikon');
+    i.setAttribute('aria-hidden', 'true');
+    obsidian.setIcon(i, GLYPH_IKON[m[1]]);
+    el.insertBefore(i, t);
+  }
+}
+function beobachteGlyphen(root, besitzer) {
+  let geplant = false;
+  const lauf = () => { geplant = false; glyphenZuIkonen(root); };
+  const mo = new MutationObserver(() => { if (!geplant) { geplant = true; requestAnimationFrame(lauf); } });
+  mo.observe(root, { childList: true, subtree: true });
+  lauf();
+  if (besitzer && besitzer.register) besitzer.register(() => mo.disconnect());
+  return mo;
+}
+
+// Fehlerart-Auswahl (Einheit und Fehlerheft): drei Knöpfe, danach der passende nächste Schritt
+function baueFehlerartWahl(box, plugin, id) {
+  const reihe = box.appendChild(h('div', 'fle-fehlerart'));
+  reihe.setAttribute('role', 'group');
+  reihe.setAttribute('aria-label', 'Was für ein Fehler war das?');
+  reihe.appendChild(h('span', 'fle-fehlerart-frage', 'Was für ein Fehler war das?'));
+  const knoepfe = reihe.appendChild(h('div', 'fle-wahl'));
+  const tipp = reihe.appendChild(h('div', 'fle-fehlerart-tipp'));
+  tipp.setAttribute('role', 'status');
+  const male = () => {
+    const art = ((plugin.daten.fehler || {})[id] || {}).art;
+    knoepfe.querySelectorAll('button').forEach((b) => { const an = b.dataset.art === art; b.classList.toggle('is-an', an); b.setAttribute('aria-pressed', String(an)); });
+    const f = FEHLERARTEN.find((x) => x[0] === art);
+    tipp.textContent = f ? f[3] : '';
+    tipp.hidden = !f;
+  };
+  for (const [art, name, erkl] of FEHLERARTEN) {
+    const b = knoepfe.appendChild(h('button', 'fle-btn fle-btn-leise fle-sicher-btn', name));
+    b.dataset.art = art;
+    b.title = erkl;
+    b.onclick = () => {
+      const alt = (plugin.daten.fehler || {})[id];
+      if (!alt) return;
+      plugin.daten.fehler = { ...plugin.daten.fehler, [id]: { ...alt, art } };
+      plugin.speichere();
+      male();
+    };
+  }
+  male();
+}
+
 class EinheitAnsicht extends obsidian.MarkdownRenderChild {
   constructor(el, plugin, einheit, sourcePath) {
     super(el);
@@ -1821,6 +1918,7 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
     this.containerEl.appendChild(this.root);
     this.baue();
     this.registerInterval(window.setInterval(() => this.tick(), 1000));
+    beobachteGlyphen(this.root, this);
     // Erste Berührung (Klick, Taste, Scrollen) startet den Timer ab dem Öffnen – die Lesezeit der Theorie zählt mit.
     // Nicht in Hover-Vorschauen, dort wird nicht gelernt.
     this.geoeffnet = Date.now();
@@ -2094,13 +2192,29 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
 
   // Zwillingsaufgabe (Wunsch 18.11., Vorbild: Mathe-Bonustest in 12 Versionen): Ist der Fall aufgedeckt und
   // nicht ganz richtig, erscheint dieselbe Aufgabe mit neuen Zahlen. Zählt nicht in die Trefferquote.
+  // Fehlerart (Wunsch 18.11., Prinzip 6): nach einem Fehler kurz einordnen; die Wiederholung im Fehlerheft richtet sich danach
+  baueFehlerart(box, key) {
+    if (this.pruefung || key.includes('~z')) return;
+    const e = (this.z.ergebnisse || {})[key];
+    if (!this.z.aufgedeckt.includes(key) || !e || e.wert == null || e.wert >= 1) return;
+    const [si, fid] = [Number(key.split('.')[0]), key.slice(key.indexOf('.') + 1)];
+    const id = fehlerId(this.e.id, si, fid);
+    if (!(this.plugin.daten.fehler || {})[id]) return;
+    baueFehlerartWahl(box, this.plugin, id);
+  }
+
   baueZwilling(box, fall, key) {
+    this.baueFehlerart(box, key);
     if (this.pruefung || !fall.zwilling) return;
     const e = (this.z.ergebnisse || {})[key];
     if (!this.z.aufgedeckt.includes(key) || !e || e.wert == null) return;
     if (e.wert >= 1 && e.sicher !== 'geraten') return;   // richtig geraten bekommt auch einen Zwilling
     const zw = box.appendChild(h('section', 'fle-zwilling' + (this.frisch === `${key}~z` ? ' fle-frisch' : '')));
-    zw.appendChild(h('div', 'fle-zwilling-titel', '🔁 Nochmals mit neuen Zahlen'));
+    const zt = zw.appendChild(h('div', 'fle-zwilling-titel'));
+    const zi = zt.appendChild(h('span', 'fle-ikon'));
+    zi.setAttribute('aria-hidden', 'true');
+    obsidian.setIcon(zi, 'repeat');
+    zt.appendChild(document.createTextNode('Nochmals mit neuen Zahlen'));
     zw.appendChild(h('div', 'fle-leise', 'Gleiche Aufgabe, andere Zahlen. So merkst du sofort, ob der Fehler jetzt sitzt.'));
     this.md(zw.appendChild(h('div', 'fle-md')), fall.zwilling.text);
     this.baueTyp(zw, fall.zwilling, `${key}~z`);
@@ -2162,13 +2276,13 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
   }
 
   // Fehlerheft (Wunsch 18.11.): nicht ganz richtige Fälle merken, Wiederholung nach 1/3/7 Tagen
-  insFehlerheft(key, wert) {
+  insFehlerheft(key, wert, sicher = null) {
     if (this.pruefung || key.includes('~z') || wert == null || wert >= 1) return;
     const [si, fid] = [Number(key.split('.')[0]), key.slice(key.indexOf('.') + 1)];
     const fall = ((this.e.schritte[si] || {}).faelle || []).find((f) => String(f.id) === fid);
     if (!fall) return;
     const titel = String(fall.text).replace(/[*_`]/g, '').slice(0, 110);
-    this.plugin.daten.fehler = fehlerEintragen(this.plugin.daten.fehler, { einheit: this.e.id, pfad: this.pfad, si, fall: fid, modul: this.e.modul || 'fa', thema: this.e.thema, titel }, heute());
+    this.plugin.daten.fehler = fehlerEintragen(this.plugin.daten.fehler, { einheit: this.e.id, pfad: this.pfad, si, fall: fid, modul: this.e.modul || 'fa', thema: this.e.thema, titel, ...(sicher ? { sicher } : {}) }, heute());
     this.plugin.speichere();
   }
 
@@ -2183,8 +2297,8 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
       if (!erg || e.wert == null) return;
       let text = '';
       if (e.sicher === 'sicher' && e.wert < 0.5) text = '⚠ Sicher, aber falsch: ein Denkfehler. Lies das Warum genau. Das Thema kommt dafür früher wieder.';
-      else if (e.sicher === 'geraten' && e.wert >= 1) text = '🎲 Richtig geraten. Das zählt, aber übe es unten nochmals.';
-      else if (e.sicher === 'sicher' && e.wert >= 1) text = '💪 Sicher und richtig. Das sitzt.';
+      else if (e.sicher === 'geraten' && e.wert >= 1) text = 'Richtig geraten. Das zählt, aber übe es unten nochmals.';
+      else if (e.sicher === 'sicher' && e.wert >= 1) text = '✓ Sicher und richtig. Das sitzt.';
       if (text) erg.insertAdjacentElement('afterend', h('div', 'fle-sicher-hinweis' + (e.wert < 0.5 ? ' is-warnung' : ''), text));
       return;
     }
@@ -2547,8 +2661,8 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
     const hilfe = ((z.hilfe || {})[key] || 0) + weg;
     const leer = istLeer((z.eingaben || {})[key]);
     const sicher = leer ? null : (z.sicher || {})[key] || null;
+    this.insFehlerheft(key, wert, sicher);
     this.frisch = key;
-    this.insFehlerheft(key, wert);
     this.setze({ ...z, aufgedeckt: [...a], ergebnisse: { ...(z.ergebnisse || {}), [key]: { wert, sek, hilfe, ...(weg ? { weg } : {}), ...(sicher ? { sicher } : {}), ...(leer ? { leer: true } : {}) } } });
     this.baue();
   }
@@ -2556,7 +2670,7 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
   bewerteSelbst(key, wert) {
     const z = this.z;
     const alt = (z.ergebnisse || {})[key] || { sek: 0 };
-    this.insFehlerheft(key, wert);
+    this.insFehlerheft(key, wert, alt.sicher || null);
     this.setze({ ...z, ergebnisse: { ...(z.ergebnisse || {}), [key]: { ...alt, wert } } });
     if (this.pruefung && z.abgegeben) this.speichereProbe();
     this.baue();
@@ -2569,7 +2683,8 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
     if (e.wert == null) { el.appendChild(h('div', 'fle-ergebnis is-offen', `Noch nicht bewertet${zeit}`)); return; }
     const t = ERGEBNIS_TEXT(e.wert);
     const cls = e.wert >= 1 ? 'is-richtig' : e.wert > 0 ? 'is-teilweise' : 'is-falsch';
-    el.appendChild(h('div', `fle-ergebnis ${cls}`, `${e.wert >= 1 ? '✓' : e.wert > 0 ? '◐' : '✗'} ${t}${zeit}`));
+    const erg = el.appendChild(h('div', `fle-ergebnis ${cls}`, `${e.wert >= 1 ? '✓' : e.wert > 0 ? '◐' : '✗'} ${t}${zeit}`));
+    erg.setAttribute('role', 'status');
   }
 
   // ── Probeprüfung ──
@@ -3719,7 +3834,7 @@ class LernzentraleAnsicht extends obsidian.ItemView {
       kopf.appendChild(h('b', null, titel));
       if (zahl) kopf.appendChild(h('span', 'flz-trainer-zahl', String(zahl)));
       k.appendChild(h('p', 'flz-trainer-text', text));
-      const b = k.appendChild(h('button', 'flz-btn' + (zahl ? ' mod-cta' : ''), knopf));
+      const b = k.appendChild(h('button', 'flz-btn' + (zahl ? ' is-cta' : ''), knopf));
       b.disabled = !an;
       b.onclick = () => offen();
     };
@@ -3732,6 +3847,35 @@ class LernzentraleAnsicht extends obsidian.ItemView {
       ? `${formel} Kennzahlen heute dran. Setz Zähler und Nenner aus Bausteinen zusammen.`
       : 'Heute keine Kennzahl fällig. Neue kommen dazu, sobald sie im Unterricht dran waren.',
     formel ? 'Puzzle starten' : 'Nichts fällig', formel > 0, () => new FormelModal(this.app, this.plugin, formelGruppen(plan && plan.plan, tag), neu).open());
+    if (modul === 'fa') this.baueKalibrierung(sec);
+  }
+
+  // Kalibrierung (Wunsch 18.11., Prinzip 8/9): über viele Aufgaben, nie pro Einzelfall; vorsichtig formuliert
+  baueKalibrierung(sec) {
+    const k = kalibrierung(this.plugin.daten.einheiten);
+    const gesamt = k.sicher.n + k.unsicher.n + k.geraten.n;
+    const ev = erstversuchQuote(this.plugin.daten.fehlerLog);
+    const karte = sec.appendChild(h('div', 'flz-trainer-karte flz-kalib'));
+    karte.appendChild(h('div', 'flz-trainer-kopf')).appendChild(h('b', null, 'Wie gut schätzt du dich ein?'));
+    if (gesamt < 10) {
+      karte.appendChild(h('p', 'flz-trainer-text', `Noch zu wenig Daten (${gesamt} von 10 Aufgaben mit Sicherheit). Tippe vor dem Aufdecken immer „sicher“, „unsicher“ oder „geraten“ an, dann siehst du hier, wie gut dein Gefühl stimmt.`));
+      return;
+    }
+    const zeilen = karte.appendChild(h('div', 'flz-kalib-zeilen'));
+    for (const [stufe, name] of [['sicher', 'sicher'], ['unsicher', 'unsicher'], ['geraten', 'geraten']]) {
+      const v = k[stufe];
+      const z = zeilen.appendChild(h('div', 'flz-kalib-zeile'));
+      z.appendChild(h('span', 'flz-kalib-name', `„${name}“`));
+      const balken = z.appendChild(h('span', 'flz-kalib-balken'));
+      const fuell = balken.appendChild(h('span', 'flz-kalib-fuell'));
+      fuell.style.width = `${v.prozent || 0}%`;
+      z.appendChild(h('span', 'flz-kalib-wert', v.n ? `${v.prozent} % richtig · ${v.n}` : '–'));
+    }
+    let satz = 'Dein Gefühl passt ungefähr zu deinen Ergebnissen.';
+    if (k.sicher.n >= 8 && k.sicher.prozent < 75) satz = 'Wenn du „sicher“ sagst, liegst du öfter daneben, als du denkst. Bei „sicher“ lohnt sich ein zweiter Blick vor dem Aufdecken.';
+    else if (k.geraten.n >= 5 && k.geraten.prozent >= 60) satz = 'Bei „geraten“ liegst du oft richtig – du weisst mehr, als du dir zutraust.';
+    karte.appendChild(h('p', 'flz-trainer-text', satz));
+    if (ev && ev.n >= 5) karte.appendChild(h('p', 'flz-trainer-text', `Fehlerheft, erster Versuch nach ein paar Tagen: ${ev.prozent} % richtig (${ev.n}). Das zählt mehr als die Quote direkt beim Üben.`));
   }
 
   // Die nächsten 7 Tage eines Moduls als Karten mit Abhaken; fünf sichtbar, Rest aufklappbar
@@ -4160,7 +4304,25 @@ class FehlerheftModal extends obsidian.Modal {
     this.liste = faelligeFehler(plugin.daten.fehler, heute(), modul);
     this.i = 0; this.richtig = 0; this.comp = new obsidian.Component();
   }
-  onOpen() { this.comp.load(); this.modalEl.addClass('fle-modal'); this.zeige(); }
+  onOpen() {
+    this.comp.load();
+    this.modalEl.addClass('fle-modal', 'fle-puzzle-modal');
+    this.titleEl.setText('Fehlerheft');
+    beobachteGlyphen(this.contentEl, null);
+    this.scope.register([], 'Enter', (ev) => { if (ev.target && ev.target.tagName === 'TEXTAREA') return true; if (this.enter) this.enter(); return false; });
+    this.zeige();
+  }
+  // Kopf wie beim Formel-Puzzle: Titel, Thema, Fortschrittspunkte
+  kopf(c, e, neueZahlen) {
+    const kopf = c.appendChild(h('div', 'fle-puzzle-kopf'));
+    const links = kopf.appendChild(h('div', 'fle-puzzle-titel'));
+    if (e) links.appendChild(h('span', 'fle-puzzle-chip', e.thema));
+    if (neueZahlen) links.appendChild(h('span', 'fle-puzzle-chip is-nochmal', 'mit neuen Zahlen'));
+    const punkte = kopf.appendChild(h('div', 'fle-puzzle-punkte'));
+    punkte.setAttribute('role', 'img');
+    punkte.setAttribute('aria-label', `${Math.min(this.i, this.liste.length)} von ${this.liste.length} erledigt`);
+    this.liste.forEach((_, i) => punkte.appendChild(h('span', i < this.i ? 'is-fertig' : i === this.i ? 'is-jetzt' : '')));
+  }
   onClose() { this.comp.unload(); this.contentEl.empty(); if (this.fertig) this.fertig(); }
   md(el, t, pfad) { obsidian.MarkdownRenderer.render(this.app, String(t), el, pfad || '', this.comp); }
 
@@ -4172,15 +4334,26 @@ class FehlerheftModal extends obsidian.Modal {
     let r; try { r = pruefeEinheit(obsidian.parseYaml(block[1])); } catch (err) { return null; }
     if (!r.ok) return null;
     const fall = ((r.einheit.schritte[e.si] || {}).faelle || []).find((x) => String(x.id) === String(e.fall));
-    return fall ? (fall.zwilling || fall) : null;
+    if (!fall) return null;
+    this.original = fall;
+    return fall.zwilling || fall;
   }
 
   async zeige() {
     const c = this.contentEl; c.empty();
+    c.removeClass('fle-wechsel'); void c.offsetWidth; c.addClass('fle-wechsel');
+    c.addClass('fle', 'fle-puzzle');
     if (this.i >= this.liste.length) {
-      c.appendChild(h('h2', null, 'Fehlerheft geschafft'));
-      c.appendChild(h('p', null, `${this.richtig} von ${this.liste.length} richtig. Was richtig war, kommt in ein paar Tagen nochmals, der Rest schon morgen.`));
-      c.appendChild(h('button', 'mod-cta', 'Schliessen')).onclick = () => this.close();
+      this.kopf(c, null, false);
+      const ende = c.appendChild(h('div', 'fle-puzzle-ende'));
+      ende.appendChild(h('div', 'fle-puzzle-ende-zahl', `${this.richtig}/${this.liste.length}`));
+      ende.appendChild(h('div', 'fle-puzzle-name', 'Fehlerheft geschafft'));
+      ende.appendChild(h('p', 'fle-leise', 'Was richtig war, kommt in ein paar Tagen nochmals, der Rest schon morgen.'));
+      const fuss = c.appendChild(h('div', 'fle-puzzle-fuss'));
+      fuss.appendChild(h('span'));
+      const zu = fuss.appendChild(h('button', 'fle-btn mod-cta', 'Schliessen'));
+      zu.onclick = () => this.close();
+      this.enter = () => this.close();
       return;
     }
     const e = this.liste[this.i];
@@ -4190,18 +4363,26 @@ class FehlerheftModal extends obsidian.Modal {
       this.plugin.daten.fehler = neu; this.plugin.speichere();
       this.liste.splice(this.i, 1); return this.zeige();
     }
-    c.appendChild(h('div', 'fle-modal-kopf', `Fehlerheft · ${this.i + 1} von ${this.liste.length} · aus „${e.thema}“${fall.id && String(fall.id).endsWith('~z') ? ' · mit neuen Zahlen' : ''}`));
+    this.kopf(c, e, fall.id && String(fall.id).endsWith('~z'));
+    // Je nach Fehlerart ein Hinweis vor dem Versuch (Prinzip 6): Begriff → Erklärung auf Abruf, Flüchtigkeit → Prüfroutine
+    if (e.art === 'fluechtig') c.appendChild(h('div', 'fle-fehlerart-tipp is-vorher', FEHLERARTEN[2][3]));
+    if (e.art === 'begriff' && this.original && this.original.warum) {
+      const det = c.appendChild(h('details', 'fle-erklaerung'));
+      det.appendChild(h('summary', null, 'Erklärung von damals nochmals lesen'));
+      this.md(det.appendChild(h('div', 'fle-md')), this.original.warum, e.pfad);
+    }
     this.md(c.appendChild(h('div', 'fle-md fle-modal-text')), fall.text, e.pfad);
     const eingabe = this.eingabe(c, fall);
-    const loes = h('div', 'fle-loesung');
-    const knopf = c.appendChild(h('button', 'mod-cta fle-modal-pruefen', 'Prüfen'));
-    c.appendChild(loes);
+    const loes = c.appendChild(h('div', 'fle-loesung'));
+    const fuss = c.appendChild(h('div', 'fle-puzzle-fuss'));
+    this.urteil = fuss.appendChild(h('span', 'fle-leise', fall.art === 'buchung' ? 'Leer lassen, wenn keine Buchung nötig ist.' : ''));
+    const knopf = this.fussKnopf = fuss.appendChild(h('button', 'fle-btn mod-cta', 'Prüfen'));
     knopf.onclick = () => {
       const wert = eingabe.wert();
-      knopf.remove();
-      if (wert == null) return this.selbst(loes, fall, e);
+      if (wert == null) { knopf.disabled = true; this.enter = null; return this.selbst(loes, fall, e); }
       this.ergebnis(loes, fall, e, wert, eingabe.roh);
     };
+    this.enter = () => { if (!knopf.disabled) knopf.click(); };
   }
 
   // Eingabefeld je nach Fall-Art; wert() = 0…1 oder null (Text: selbst bewerten)
@@ -4214,7 +4395,7 @@ class FehlerheftModal extends obsidian.Modal {
       const tb = tab.appendChild(h('tbody'));
       for (const r of zeilen) {
         const tr = tb.appendChild(h('tr'));
-        r.forEach((_, i) => { const inp = tr.appendChild(h('td')).appendChild(h('input', 'fle-eingabe')); if (i < 2) inp.setAttribute('list', 'fle-konten-modal'); inp.oninput = () => { r[i] = inp.value; }; });
+        r.forEach((_, i) => { const inp = tr.appendChild(h('td')).appendChild(h('input', 'fle-eingabe' + (i === 2 ? ' is-betrag' : ''))); inp.setAttribute('aria-label', ['Soll', 'Haben', 'Betrag'][i]); if (i === 2) inp.inputMode = 'decimal'; if (i < 2) inp.setAttribute('list', 'fle-konten-modal'); inp.oninput = () => { r[i] = inp.value; }; });
       }
       const dl = c.appendChild(h('datalist')); dl.id = 'fle-konten-modal';
       for (const k of [...KONTENPLAN.bilanz, ...KONTENPLAN.erfolg]) dl.appendChild(h('option')).value = k;
@@ -4223,6 +4404,7 @@ class FehlerheftModal extends obsidian.Modal {
     if (fall.art === 'zahl') {
       const inp = c.appendChild(h('div', 'fle-zahl')).appendChild(h('input', 'fle-eingabe fle-zahl-feld'));
       inp.inputMode = 'decimal';
+      inp.setAttribute('aria-label', 'Deine Antwort');
       if (fall.einheit) inp.parentElement.appendChild(h('span', 'fle-zahl-einheit', fall.einheit));
       return { wert: () => (inp.value.trim() ? pruefeZahlFall([[inp.value]], fall) : 0) };
     }
@@ -4252,7 +4434,7 @@ class FehlerheftModal extends obsidian.Modal {
       }
       return { wert: () => bewerteKreuz([[...wahl]], fall) };
     }
-    const t = c.appendChild(h('textarea', 'fle-eingabe fle-text')); t.rows = 3;
+    const t = c.appendChild(h('textarea', 'fle-eingabe fle-text')); t.rows = 3; t.setAttribute('aria-label', 'Deine Antwort');
     return { wert: () => null };
   }
 
@@ -4267,19 +4449,38 @@ class FehlerheftModal extends obsidian.Modal {
       for (const f of dg.fehlend) ul.appendChild(h('li', 'is-fehler', `✗ Fehlt: ${f[0]} / ${f[1]} ${betrag(f[2])}`));
       loes.appendChild(h('div', 'fle-label', 'Lösung'));
       if (!fall.loesung.length) loes.appendChild(h('div', null, 'Keine Buchung nötig.'));
-      for (const [so, ha, be] of fall.loesung) loes.appendChild(h('div', 'fle-modal-zeile', `${so} / ${ha} · ${betrag(be)}`));
+      if (fall.loesung.length) {
+        const lt = loes.appendChild(h('table', 'fle-tabelle is-loesung'));
+        const hr = lt.appendChild(h('thead')).appendChild(h('tr'));
+        for (const t of ['Soll', 'Haben', 'Betrag']) hr.appendChild(h('th', null, t));
+        const lb = lt.appendChild(h('tbody'));
+        for (const [so, ha, be] of fall.loesung) {
+          const tr = lb.appendChild(h('tr'));
+          tr.appendChild(h('td', null, so)); tr.appendChild(h('td', null, ha)); tr.appendChild(h('td', 'is-betrag', betrag(be)));
+        }
+      }
     } else if (fall.art === 'zahl') {
       loes.appendChild(h('div', 'fle-zahl-loesung', `${(Array.isArray(fall.zahl) ? fall.zahl : [fall.zahl]).map(betrag).join('; ')}${fall.einheit ? ' ' + fall.einheit : ''}`));
       if (Array.isArray(fall.weg)) { const ol = loes.appendChild(h('ol', 'fle-weg')); for (const w of fall.weg) this.md(ol.appendChild(h('li')), w); }
     } else if (fall.art === 'auswahl') loes.appendChild(h('div', null, `Richtig: ${fall.richtig.join(', ')}`));
     else if (fall.art === 'kprim') fall.kprim.forEach((a, i) => loes.appendChild(h('div', null, `${i + 1}. ${a.richtig ? 'richtig' : 'falsch'}${a.warum ? ' – ' + a.warum : ''}`)));
     if (fall.warum) this.md(loes.appendChild(h('div', 'fle-md fle-warum')), fall.warum, e.pfad);
-    this.plugin.daten.fehler = fehlerNachUebung(this.plugin.daten.fehler, e.id, ok, heute());
+    // Erstversuch-Quote: nur der erste Versuch pro Tag zählt (verzögerter Abruf, Prinzip 9)
+    if (!this.geloggt) this.geloggt = new Set();
+    if (!this.geloggt.has(e.id)) { this.geloggt.add(e.id); this.plugin.daten.fehlerLog = [...(this.plugin.daten.fehlerLog || []), { datum: heute(), ok }].slice(-200); }
+    this.plugin.daten.fehler = fehlerNachUebung(this.plugin.daten.fehler, e.id, ok, heute(), this.plugin.pruefungDatum(e.modul || 'fa'));
     this.plugin.speichere();
     const st = (this.plugin.daten.fehler || {})[e.id];
-    loes.appendChild(h('div', 'fle-leise', ok ? (st ? `Kommt am ${kurz(st.faellig)} nochmals.` : 'Dreimal richtig: raus aus dem Heft. 🎉') : 'Kommt morgen nochmals.'));
-    const w = loes.appendChild(h('button', 'mod-cta', 'Weiter'));
+    if (!ok && st) baueFehlerartWahl(loes, this.plugin, e.id);
+    // Urteil unten in der Leiste, daneben der Knopf „Weiter“
+    this.urteil.className = `fle-puzzle-urteil ${ok ? 'is-richtig' : 'is-falsch'}`;
+    this.urteil.setAttribute('role', 'status');
+    this.urteil.textContent = ok ? (st ? `✓ Richtig, kommt am ${kurz(st.faellig)} nochmals` : '✓ Dreimal richtig, raus aus dem Heft') : '✗ Kommt morgen nochmals';
+    const w = this.fussKnopf;
+    w.disabled = false;
+    w.textContent = this.i + 1 < this.liste.length ? 'Weiter' : 'Fertig';
     w.onclick = () => { this.i += 1; this.zeige(); };
+    this.enter = () => w.click();
     w.focus();
   }
 
@@ -4302,61 +4503,116 @@ class FormelModal extends obsidian.Modal {
     this.liste = formelnHeute(plugin.daten.formeln, heute(), erlaubt);
     this.gesehen = new Set(); this.i = 0; this.richtig = 0; this.anzahl = this.liste.length;
   }
-  onOpen() { this.modalEl.addClass('fle-modal'); this.zeige(); }
+  onOpen() {
+    this.modalEl.addClass('fle-modal', 'fle-puzzle-modal');
+    this.titleEl.setText('Formel-Puzzle');
+    beobachteGlyphen(this.contentEl, null);
+    // Enter = Prüfen bzw. Weiter; einmal registriert, zeige() setzt nur das Ziel
+    this.scope.register([], 'Enter', () => { if (this.enter) this.enter(); return false; });
+    this.zeige();
+  }
   onClose() { this.contentEl.empty(); if (this.fertig) this.fertig(); }
+
+  // Kopf: Titel, Gruppe und Fortschrittspunkte (gefüllt = erledigt, Ring = jetzt)
+  kopf(c, k, erstmals) {
+    const kopf = c.appendChild(h('div', 'fle-puzzle-kopf'));
+    const links = kopf.appendChild(h('div', 'fle-puzzle-titel'));
+    if (k) links.appendChild(h('span', 'fle-puzzle-chip', `Nr. ${k.nr} · ${k.gruppe}`));
+    if (k && !erstmals) links.appendChild(h('span', 'fle-puzzle-chip is-nochmal', 'zweiter Versuch'));
+    const punkte = kopf.appendChild(h('div', 'fle-puzzle-punkte'));
+    punkte.setAttribute('role', 'img');
+    punkte.setAttribute('aria-label', `${Math.min(this.i, this.liste.length)} von ${this.liste.length} erledigt`);
+    punkte.setAttribute('aria-label', `${Math.min(this.i, this.liste.length)} von ${this.liste.length}`);
+    this.liste.forEach((_, i) => punkte.appendChild(h('span', i < this.i ? 'is-fertig' : i === this.i ? 'is-jetzt' : '')));
+  }
 
   zeige() {
     const c = this.contentEl; c.empty();
+    c.removeClass('fle-wechsel'); void c.offsetWidth; c.addClass('fle-wechsel');
+    c.addClass('fle', 'fle-puzzle');
     if (this.i >= this.liste.length) {
-      c.appendChild(h('h2', null, 'Formel-Puzzle geschafft'));
-      c.appendChild(h('p', null, `${this.richtig} von ${this.anzahl} Kennzahlen beim ersten Versuch richtig. Die falschen hast du nochmals gesetzt; sie kommen morgen wieder.`));
-      c.appendChild(h('button', 'mod-cta', 'Schliessen')).onclick = () => this.close();
+      this.kopf(c, null, true);
+      const ende = c.appendChild(h('div', 'fle-puzzle-ende'));
+      ende.appendChild(h('div', 'fle-puzzle-ende-zahl', `${this.richtig}/${this.anzahl}`));
+      ende.appendChild(h('div', 'fle-puzzle-name', this.richtig === this.anzahl ? 'Alles beim ersten Versuch richtig' : 'Runde geschafft'));
+      ende.appendChild(h('p', 'fle-leise', this.richtig === this.anzahl
+        ? 'Diese Kennzahlen kommen erst in ein paar Tagen wieder.'
+        : 'Die falschen hast du gleich nochmals gesetzt. Sie kommen morgen wieder, die richtigen erst in ein paar Tagen.'));
+      const fuss = c.appendChild(h('div', 'fle-puzzle-fuss'));
+      fuss.appendChild(h('span'));
+      const zu = fuss.appendChild(h('button', 'fle-btn mod-cta', 'Schliessen'));
+      zu.onclick = () => this.close();
+      zu.focus();
+      this.enter = () => this.close();
       return;
     }
     const k = this.liste[this.i];
     const erstmals = !this.gesehen.has(k.id);
-    c.appendChild(h('div', 'fle-modal-kopf', `Formel-Puzzle · ${Math.min(this.i + 1, this.anzahl)} von ${this.anzahl}${erstmals ? '' : ' · zweiter Versuch'} · Nr. ${k.nr} ${k.gruppe}`));
-    c.appendChild(h('h2', 'fle-formel-name', `${k.name} =`));
+    this.kopf(c, k, erstmals);
+    c.appendChild(h('div', 'fle-puzzle-name', k.name));
+    const bruch = k.op === '÷';
+    const LEER = bruch ? ['Zähler', 'Nenner'] : ['links', 'rechts'];
     const platz = [null, null];
-    const formel = c.appendChild(h('div', `fle-formel ${k.op === '÷' ? 'is-bruch' : 'is-reihe'}`));
+    const formel = c.appendChild(h('div', `fle-formel ${bruch ? 'is-bruch' : 'is-reihe'}`));
+    formel.appendChild(h('span', 'fle-formel-gleich', '='));
+    const koerper = formel.appendChild(h('div', 'fle-formel-koerper'));
     const slots = [0, 1].map((i) => {
-      const b = formel.appendChild(h('button', 'fle-formel-platz', i ? 'Nenner' : 'Zähler'));
-      if (k.op !== '÷') b.textContent = i ? 'rechts' : 'links';
-      if (i === 0) formel.appendChild(h('div', 'fle-formel-op', k.op === '÷' ? '' : k.op));
-      b.onclick = () => { platz[i] = null; male(); };
+      const b = koerper.appendChild(h('button', 'fle-formel-platz'));
+      if (i === 0) koerper.appendChild(h('div', 'fle-formel-op', bruch ? '' : k.op));
+      b.onclick = () => { if (platz[i] == null || this.geprueft) return; platz[i] = null; male(); };
       return b;
     });
     const steine = c.appendChild(h('div', 'fle-formel-steine'));
     const knoepfe = formelBausteine(k).map((t) => {
-      const b = steine.appendChild(h('button', 'fle-btn fle-formel-stein', t));
+      const b = steine.appendChild(h('button', 'fle-chip fle-formel-stein', t));
       b.onclick = () => { const i = platz[0] == null ? 0 : platz[1] == null ? 1 : -1; if (i < 0) return; platz[i] = t; male(); };
       return b;
     });
-    const pruefen = c.appendChild(h('button', 'mod-cta fle-modal-pruefen', 'Prüfen'));
+    const fuss = c.appendChild(h('div', 'fle-puzzle-fuss'));
+    const hinweis = fuss.appendChild(h('span', 'fle-leise', 'Tippe einen Baustein, er landet im nächsten freien Feld. Ein Feld antippen leert es.'));
+    const pruefen = fuss.appendChild(h('button', 'fle-btn mod-cta', 'Prüfen'));
+    this.geprueft = false;
     const male = () => {
-      slots.forEach((b, i) => { b.textContent = platz[i] || (k.op === '÷' ? (i ? 'Nenner' : 'Zähler') : (i ? 'rechts' : 'links')); b.classList.toggle('is-voll', !!platz[i]); });
-      knoepfe.forEach((b) => { b.disabled = platz.includes(b.textContent); });
+      slots.forEach((b, i) => { b.textContent = platz[i] || LEER[i]; b.classList.toggle('is-voll', !!platz[i]); });
+      knoepfe.forEach((b) => b.classList.toggle('is-weg', platz.includes(b.textContent)));
       pruefen.disabled = platz.includes(null);
     };
     male();
     pruefen.onclick = () => {
+      if (pruefen.disabled) return;
+      this.geprueft = true;
       const ok = pruefeFormel(k, platz[0], platz[1]);
       if (erstmals) {
         this.gesehen.add(k.id);
         if (ok) this.richtig += 1;
-        this.plugin.daten.formeln = formelNachUebung(this.plugin.daten.formeln, k.id, ok, heute());
+        this.plugin.daten.formeln = formelNachUebung(this.plugin.daten.formeln, k.id, ok, heute(), this.plugin.pruefungDatum('fa'));
         this.plugin.speichere();
         if (!ok) this.liste.push(k);   // gleich nochmals am Ende dieser Runde
       }
       formel.classList.add(ok ? 'is-richtig' : 'is-falsch');
-      [...slots, ...knoepfe, pruefen].forEach((b) => { b.disabled = true; });
-      const r = c.appendChild(h('div', `fle-ergebnis ${ok ? 'is-richtig' : 'is-falsch'}`, ok ? '✓ richtig' : '✗ falsch'));
-      r.classList.add('fle-frisch');
-      if (!ok) c.appendChild(h('div', 'fle-formel-loesung', `${k.name} = ${k.a} ${k.op} ${k.b}`));
-      const w = c.appendChild(h('button', 'mod-cta', 'Weiter'));
-      w.onclick = () => { this.i += 1; this.zeige(); };
-      w.focus();
+      // Jedes Feld einzeln: richtig gesetzt grün, falsch rot (beim Produkt zählt auch die vertauschte Reihenfolge)
+      const soll = ok && k.op === '×' && platz[0] === k.b ? [k.b, k.a] : [k.a, k.b];
+      slots.forEach((sl, i) => sl.classList.add(platz[i] === soll[i] ? 'is-ok' : 'is-nein'));
+      steine.classList.add('is-zu');
+      knoepfe.forEach((b) => { b.disabled = true; });
+      // Falsch: die richtige Formel direkt darunter, im gleichen Aufbau
+      if (!ok) {
+        const l = h('div', `fle-formel is-loesung ${bruch ? 'is-bruch' : 'is-reihe'}`);
+        l.appendChild(h('span', 'fle-formel-gleich', 'richtig'));
+        const lk = l.appendChild(h('div', 'fle-formel-koerper'));
+        lk.appendChild(h('div', 'fle-formel-platz is-voll', k.a));
+        lk.appendChild(h('div', 'fle-formel-op', bruch ? '' : k.op));
+        lk.appendChild(h('div', 'fle-formel-platz is-voll', k.b));
+        formel.insertAdjacentElement('afterend', l);
+      }
+      hinweis.className = `fle-puzzle-urteil ${ok ? 'is-richtig' : 'is-falsch'}`;
+      hinweis.setAttribute('role', 'status');
+      hinweis.textContent = ok ? (erstmals ? '✓ Richtig' : '✓ Jetzt sitzt sie') : (erstmals ? '✗ Nicht ganz, kommt am Ende der Runde nochmals' : '✗ Nochmals falsch, sie kommt morgen wieder');
+      pruefen.textContent = this.i + 1 < this.liste.length ? 'Weiter' : 'Fertig';
+      pruefen.onclick = () => { this.i += 1; this.zeige(); };
+      pruefen.focus();
     };
+    this.enter = () => { if (!pruefen.disabled) pruefen.click(); };
   }
 }
 
@@ -4745,6 +5001,12 @@ class FaLerneinheit extends obsidian.Plugin {
     if (leaf) await leaf.setViewState({ type: VIEW_LZ, active: true });
   }
 
+  // Prüfungsdatum je Modul: aus dem zuletzt geladenen Fahrplan, sonst aus PRUEFUNG
+  pruefungDatum(modul = 'fa') {
+    const key = modul === 'mathe' ? 'ma' : modul;
+    return ((this.pruefungsCache || {})[modul]) || (PRUEFUNG[key] || {}).datum || null;
+  }
+
   async ladeFahrplan(modul = 'fa') {
     // Per Name suchen: Die Seite darf in einen beliebigen Ordner verschieben
     const c = cfgFuer(modul);
@@ -4757,6 +5019,7 @@ class FaLerneinheit extends obsidian.Plugin {
     try { roh = obsidian.parseYaml(block[1]); } catch (err) { return null; }
     const r = pruefeFahrplan(roh);
     if (!r.ok) return null;
+    if (r.plan.pruefung) this.pruefungsCache = { ...(this.pruefungsCache || {}), [modul]: isoTag(r.plan.pruefung) };
     const zeilen = fs instanceof obsidian.TFile ? leseFortschritt(await this.app.vault.cachedRead(fs)) : [];
     const tag = heute();
     let liste = null;
@@ -4882,6 +5145,7 @@ module.exports = FaLerneinheit;
 module.exports.logik = { bezuege, zeitSchritt, modulAusPfad, zeitDazu, mischeZeit, wochenzielFuer, auswahlWahl, bewerteKprim, bewerteAuswahl, kprimWahl, videosFuer, ERKLAERVIDEOS, folgtHinweis, kw,unterlagenGruppen, wiederholKarte, quizListe, themaMitQuiz, NEUE_MODULE, tafelSpalte, hakeAb, naechsteSiebenMitRest, UNTERLAGEN, PRUEFUNG, pruefungsSatz, modulDateien, letzteRunde, naechsteSieben, erledigtListe, fakten, fahrplanKennzahlen, hochrechnung, leseBoard, etappeHeute, lernMinuten, wocheVon, serie, tagesziel, MODUL_SPALTEN, pruefTempo, bewerteBuchung, prozentFuerMit, uebernahmeAblauf, istVorschlagSeite, pdfSeiten, pruefeSpick, spickAenderungen, uebernimmVorschlag, spickHtml, SPICK_MAX_ZEICHEN, noteMit, naechsteTodos, matheZeilen, cfgFuer, MODULE, leseZahl, leseZahlen, pruefeZahl, pruefeMenge, pruefeEinheit, KONTENPLAN, EINSCHAETZUNGEN, istKonto,
   buchungsDiagnose, kontoArt, buchungsWirkung, sicherFalsch,
   WIRKUNGEN, wirkungSoll, tempoSoll, tempoStufe, FEHLER_ABSTAND, fehlerId, fehlerEintragen, fehlerNachUebung, faelligeFehler,
+  ANKER_TAGE, ankerFaellig, FEHLERARTEN, kalibrierung, erstversuchQuote,
   KENNZAHLEN, pruefeFormel, formelBausteine, formelnHeute, formelNachUebung, formelGruppen,
   neuerZustand, starte, stoppeLaufenden, istWackelig, MAX_LAUF_S, stoppeNachAbsturz, nachPause, fallSekunden, matheEinheitZeile, uhrSek, uhrPause, setzeZeit,
   hakeKarteAb, fortschrittZeile, setzeFortschritt, pruefungsErgebnis, restSekunden, freischaltung, normKonto, leseBetrag, pruefeBuchung, trefferQuote,

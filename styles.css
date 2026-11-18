@@ -298,7 +298,7 @@
 .fle-probe.is-neu .fle-probe-ikon { animation: fle-ploepp 0.8s 0.3s both; }
 @keyframes fle-wackeln { 25% { transform: rotate(-12deg); } 75% { transform: rotate(12deg); } }
 @keyframes fle-frei { 0% { box-shadow: 0 0 0 0 rgba(var(--color-purple-rgb), 0.7); } 100% { box-shadow: 0 0 0 24px rgba(var(--color-purple-rgb), 0); } }
-@keyframes fle-ploepp { 0% { transform: scale(0.4) rotate(-30deg); } 60% { transform: scale(1.3); } 100% { transform: scale(1); } }
+@keyframes fle-ploepp { 0% { transform: scale(0.6); opacity: 0; } 100% { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .fle-probe, .fle-probe * { animation: none !important; } }
 
 .fle-probe-gross { max-width: 600px; margin: 32px auto; padding: 28px 28px 24px; text-align: center; display: grid; justify-items: center; gap: 8px; }
@@ -604,7 +604,7 @@
 .flz-bk-wann { font-size: 12px; color: var(--text-faint); }
 .flz-bk.is-ueber .flz-bk-wann { color: var(--flz-alarm); font-weight: 650; }
 .flz-bk.is-heute .flz-bk-wann { color: var(--text-normal); font-weight: 650; }
-.flz-bk.is-ueber { border-left: 3px solid var(--flz-alarm); }
+.flz-bk.is-ueber { border-color: color-mix(in srgb, var(--flz-alarm) 45%, var(--flz-rand)); background: color-mix(in srgb, var(--flz-alarm) 5%, var(--background-primary)); }
 .flz-bk-hinweis { display: block; margin-top: 3px; font-size: 12px; color: var(--text-muted); }
 .flz-sp-rest { display: flex; flex-direction: column; gap: 8px; }
 .flz-sp-rest[hidden] { display: none; }
@@ -843,10 +843,11 @@
 .fle-video-rahmen { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: var(--fle-r-klein); overflow: hidden; background: var(--background-secondary); }
 .fle-video-rahmen iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .fle-video-liste { display: flex; flex-wrap: wrap; gap: 6px; }
-.fle .fle-video-liste button.fle-video-chip {
+.fle button.fle-chip, .fle .fle-video-liste button.fle-video-chip {
   height: auto; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--fle-rand); box-shadow: none; filter: none; contain: none;
   background: transparent; color: var(--text-muted); font-size: var(--font-ui-smaller); white-space: normal; text-align: left; cursor: pointer;
 }
+.fle button.fle-chip:hover { border-color: var(--text-faint); color: var(--text-normal); }
 .fle .fle-video-liste button.fle-video-chip.is-aktiv { border-color: var(--fle-akzent); color: var(--text-normal); background: rgba(var(--fle-akzent-rgb), 0.1); }
 .fle-video-link { align-self: flex-start; font-size: var(--font-ui-smaller); color: var(--text-muted); }
 
@@ -879,18 +880,18 @@
 .flz-schritt.is-geschafft .flz-ziel-txt b { color: var(--flz-gut); }
 /* Nur beim ersten Mal am Tag: von unten volllaufen, Stern ploppt, Knoten hüpft, Lichtring */
 .flz-schritt.is-feiern .flz-ziel-fuell { animation: flz-fuellen 900ms cubic-bezier(.5, 0, .3, 1) both; }
-.flz-schritt.is-feiern .flz-zielknoten svg { animation: flz-stern 520ms cubic-bezier(.3, 1.6, .5, 1) 850ms both; }
+.flz-schritt.is-feiern .flz-zielknoten svg { animation: flz-stern 520ms var(--flz-aus) 850ms both; }
 .flz-schritt.is-feiern .flz-zielknoten { animation: flz-huepf 600ms var(--flz-aus) 850ms, flz-glanz 1.4s ease-out 900ms 2, flz-rand 900ms step-end both; }
 @keyframes flz-rand { from { border-color: var(--flz-gut); } to { border-color: transparent; } }
 .flz-schritt.is-feiern .flz-ziel-txt { animation: flz-zieltxt 500ms var(--flz-aus) 900ms both; }
 @keyframes flz-fuellen { from { clip-path: inset(100% 0 0 0 round 50%); } to { clip-path: inset(0 0 0 0 round 50%); } }
 @keyframes flz-stern { from { transform: scale(0) rotate(-120deg); opacity: 0; } to { transform: none; opacity: 1; } }
-@keyframes flz-huepf { 0%, 100% { transform: none; } 40% { transform: scale(1.28); } 70% { transform: scale(.94); } }
+@keyframes flz-huepf { 0% { transform: scale(0.9); opacity: .6; } 100% { transform: none; opacity: 1; } }
 @keyframes flz-glanz { from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--flz-gut) 55%, transparent); } to { box-shadow: 0 0 0 16px color-mix(in srgb, var(--flz-gut) 0%, transparent); } }
 @keyframes flz-zieltxt { from { opacity: 0; transform: translateY(6px); } }
 
 /* Bezug auf einen früheren Fall (16.11.2026) */
-.fle-bezug { border-left: 3px solid var(--interactive-accent); background: var(--background-secondary); border-radius: 6px; padding: 6px 10px; font-size: 0.9em; color: var(--text-muted); }
+.fle-bezug { border: 1px solid var(--fle-rand); background: var(--background-secondary); border-radius: var(--fle-r-klein); padding: 6px 10px; font-size: 0.9em; color: var(--text-muted); }
 .fle-bezug-titel { font-weight: 600; font-size: 0.85em; margin-bottom: 2px; }
 .fle-bezug .fle-md p { margin: 2px 0; }
 /* Zwillingsaufgabe: dieselbe Aufgabe mit neuen Zahlen, erscheint nach einem Fehler */
@@ -994,8 +995,8 @@
 .fle-frisch .fle-sicher-hinweis { animation: fle-auf 0.35s ease both; }
 .fle-sicher-hinweis.is-warnung { background: rgba(var(--color-red-rgb), 0.12); font-weight: 600; }
 
-.fle-frisch .fle-ergebnis { animation: fle-pop 0.35s cubic-bezier(.2,1.6,.4,1) both; }
-@keyframes fle-pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.fle-frisch .fle-ergebnis { animation: fle-pop 0.3s var(--fle-aus) both; }
+@keyframes fle-pop { from { transform: scale(0.94); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes fle-auf { from { transform: translateY(6px); opacity: 0; } to { transform: none; opacity: 1; } }
 
 .fle-tabelle input.is-ok { background: rgba(var(--color-green-rgb), 0.14); }
@@ -1003,11 +1004,12 @@
 .fle-tabelle input.is-fehler:placeholder-shown { text-decoration: none; }
 .fle-tabelle tr.fle-z-extra input { opacity: 0.7; }
 .fle-diagnose { margin: 4px 0 10px; padding-left: 0; list-style: none; font-size: var(--font-ui-small); }
-.fle-diagnose li { padding: 2px 8px; margin: 2px 0; border-left: 3px solid; border-radius: 3px; }
+.fle-diagnose li { padding: 4px 10px; margin: 0; border-radius: var(--fle-r-klein); }
 .fle-frisch .fle-diagnose li { animation: fle-auf 0.3s ease both; }
-.fle-diagnose li.is-ok { border-color: var(--color-green); }
-.fle-diagnose li.is-teil { border-color: var(--color-yellow); background: rgba(var(--color-yellow-rgb), 0.08); }
-.fle-diagnose li.is-fehler { border-color: var(--color-red); background: rgba(var(--color-red-rgb), 0.08); }
+.fle-diagnose { display: flex; flex-direction: column; gap: 4px; }
+.fle-diagnose li.is-ok { background: rgba(var(--color-green-rgb), 0.1); color: color-mix(in srgb, var(--color-green) 70%, var(--text-normal)); }
+.fle-diagnose li.is-teil { background: rgba(var(--color-yellow-rgb), 0.12); color: color-mix(in srgb, var(--color-yellow) 55%, var(--text-normal)); }
+.fle-diagnose li.is-fehler { background: rgba(var(--color-red-rgb), 0.1); color: color-mix(in srgb, var(--color-red) 70%, var(--text-normal)); }
 
 .fle-tkonten-box { margin: 10px 0; }
 .fle-tkonten { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0 6px; }
@@ -1056,7 +1058,7 @@
 .fle-wirkung-ok { margin: 6px 0; padding: 4px 10px; border-radius: 6px; font-size: var(--font-ui-small); }
 .fle-wirkung-ok.is-richtig { background: rgba(var(--color-green-rgb), 0.12); }
 .fle-wirkung-ok.is-falsch { background: rgba(var(--color-red-rgb), 0.12); }
-.fle-frisch .fle-wirkung-ok { animation: fle-pop 0.35s cubic-bezier(.2,1.6,.4,1) both; }
+.fle-frisch .fle-wirkung-ok { animation: fle-pop 0.3s var(--fle-aus) both; }
 
 .flz-trainer { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 12px 0; }
 .flz-trainer-karte { padding: 12px 14px; border-radius: 12px; background: var(--background-secondary); border: 1px solid var(--background-modifier-border); }
@@ -1071,20 +1073,139 @@
 .fle-modal-pruefen { margin: 10px 0; }
 .fle-modal .fle-loesung > button { margin-top: 10px; }
 .fle-modal-zeile { font-variant-numeric: tabular-nums; }
-.fle-formel-name { margin: 4px 0 14px; }
-.fle-formel { display: flex; align-items: center; gap: 10px; margin: 8px 0 16px; padding: 12px; border-radius: 10px; background: var(--background-secondary); transition: background 0.3s; }
-.fle-formel.is-bruch { flex-direction: column; }
-.fle-formel.is-bruch .fle-formel-op { width: 100%; max-width: 420px; height: 0; border-top: 2px solid var(--text-normal); }
-.fle-formel-op { font-size: 1.4em; font-weight: 700; }
-.fle-formel-platz { min-width: 220px; min-height: 36px; border: 2px dashed var(--background-modifier-border); background: transparent; color: var(--text-faint); }
-.fle-formel-platz.is-voll { border-style: solid; border-color: var(--interactive-accent); color: var(--text-normal); font-weight: 600; }
-.fle-formel.is-richtig { background: rgba(var(--color-green-rgb), 0.15); animation: fle-pop 0.35s ease; }
-.fle-formel.is-falsch { background: rgba(var(--color-red-rgb), 0.12); animation: fle-mahnen 0.4s ease 1; }
-.fle-formel-steine { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
-.fle-formel-stein:disabled { opacity: 0.35; }
-.fle-formel-loesung { margin: 8px 0; padding: 6px 10px; border-radius: 6px; background: rgba(var(--color-green-rgb), 0.12); font-weight: 600; }
 
 @media (prefers-reduced-motion: reduce) {
   .fle-tempo-fuell { transition: none; }
-  .fle-formel.is-richtig, .fle-formel.is-falsch, .fle-frisch .fle-wirkung-ok { animation: none !important; }
+  .fle-frisch .fle-wirkung-ok, .fle-formel, .fle-formel-stein, .fle-formel-platz, .fle-puzzle-urteil { animation: none !important; transition: none !important; }
+}
+
+/* ── Formel-Puzzle, Gestaltung 18.11. ── */
+.fle-puzzle-modal { width: min(640px, 94vw); }
+.fle-puzzle { display: flex; flex-direction: column; gap: 14px; }
+.fle-puzzle-kopf { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-right: 28px; }
+.fle-puzzle-titel { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.fle-puzzle-label { font-size: var(--font-ui-small); font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.fle-puzzle-chip { font-size: 0.75em; padding: 1px 8px; border-radius: 10px; background: var(--background-modifier-hover); color: var(--text-muted); }
+.fle-puzzle-chip.is-nochmal { background: rgba(var(--color-orange-rgb), 0.15); color: var(--color-orange); }
+.fle-puzzle-punkte { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; max-width: 45%; }
+.fle-puzzle-punkte span { width: 8px; height: 8px; border-radius: 50%; background: var(--background-modifier-border); }
+.fle-puzzle-punkte span.is-fertig { background: var(--interactive-accent); }
+.fle-puzzle-punkte span.is-jetzt { background: transparent; box-shadow: 0 0 0 2px var(--interactive-accent); }
+.fle-puzzle-name { font-size: 1.45em; font-weight: 700; line-height: 1.25; }
+
+.fle-formel { display: flex; align-items: center; gap: 14px; padding: 18px 16px; border-radius: 12px; background: var(--background-secondary); border: 1px solid var(--background-modifier-border); transition: background 0.25s, border-color 0.25s; }
+.fle-formel-gleich { font-size: 1.4em; font-weight: 700; color: var(--text-muted); width: 64px; flex-shrink: 0; text-align: center; }
+.fle-formel-koerper { flex: 1; display: flex; align-items: center; gap: 10px; }
+.fle-formel.is-bruch .fle-formel-koerper { flex-direction: column; gap: 8px; }
+.fle-formel.is-bruch .fle-formel-op { align-self: stretch; height: 0; border-top: 2px solid var(--text-normal); }
+.fle-formel-op { font-size: 1.3em; font-weight: 700; }
+.fle-formel-platz { display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: 100%; max-width: 380px; height: 42px; min-height: 42px; padding: 6px 14px; line-height: 1.2; border-radius: 8px; border: 2px dashed var(--background-modifier-border-hover); background: transparent; box-shadow: none; color: var(--text-faint); font-size: 1em; text-align: center; cursor: default; transition: border-color 0.15s, background 0.15s; }
+.fle-formel.is-reihe .fle-formel-platz { flex: 1; }
+.fle-formel-platz.is-voll { border-style: solid; border-color: var(--interactive-accent); background: var(--background-primary); color: var(--text-normal); font-weight: 600; cursor: pointer; }
+.fle-formel.is-richtig { background: rgba(var(--color-green-rgb), 0.1); border-color: rgba(var(--color-green-rgb), 0.5); }
+.fle-formel-platz.is-ok { border-color: var(--color-green) !important; cursor: default; }
+.fle-formel.is-falsch { background: rgba(var(--color-red-rgb), 0.07); border-color: rgba(var(--color-red-rgb), 0.45); animation: fle-mahnen 0.35s ease 1; }
+.fle-formel-platz.is-nein { border-color: var(--color-red) !important; color: var(--text-muted) !important; text-decoration: line-through; text-decoration-color: rgba(var(--color-red-rgb), 0.7); cursor: default; }
+.fle-formel.is-loesung { background: rgba(var(--color-green-rgb), 0.1); border-color: rgba(var(--color-green-rgb), 0.5); animation: fle-auf 0.3s ease both; }
+.fle-formel.is-loesung .fle-formel-gleich { font-size: 0.75em; color: var(--color-green); text-transform: uppercase; letter-spacing: 0.04em; }
+.fle-formel.is-loesung .fle-formel-platz { border-color: var(--color-green); }
+
+.fle-formel-steine { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; min-height: 40px; }
+.fle-formel-stein { padding: 6px 14px; border-radius: 18px; border: 1px solid var(--background-modifier-border); background: var(--background-primary); box-shadow: 0 1px 2px rgba(0,0,0,0.06); font-size: var(--font-ui-small); cursor: pointer; transition: transform 0.1s, border-color 0.15s, opacity 0.2s; }
+.fle-formel-stein:hover { border-color: var(--interactive-accent); transform: translateY(-1px); }
+.fle-formel-stein.is-weg { display: none; }
+.fle-formel-steine.is-zu .fle-formel-stein { opacity: 0.35; cursor: default; transform: none; }
+
+.fle-puzzle-fuss { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid var(--background-modifier-border); }
+.fle-puzzle-fuss .fle-leise { font-size: var(--font-ui-smaller); }
+.fle-puzzle-fuss button { flex-shrink: 0; min-width: 96px; }
+.fle-puzzle-urteil { font-weight: 600; animation: fle-auf 0.25s ease both; }
+.fle-puzzle-urteil.is-richtig { color: var(--color-green); }
+.fle-puzzle-urteil.is-falsch { color: var(--color-red); }
+.fle-puzzle-ende { text-align: center; padding: 12px 0 4px; }
+.fle-puzzle-ende-zahl { font-size: 2.6em; font-weight: 800; color: var(--interactive-accent); line-height: 1.1; }
+.fle-puzzle .fle-modal-text { font-size: 1.05em; }
+.fle-puzzle .fle-loesung:empty { display: none; }
+.fle-puzzle .fle-tabelle { margin: 0; }
+/* ── Einheitlicher Stil (18.11.) ──
+   Ein System für Lernzentrale, Lerneinheiten, Fahrplan und Fenster:
+   Karten 1px Rand + Radius 14 (Lernzentrale) bzw. --fle-r (Einheit), kleine Flächen --fle-r-klein, Chips rund;
+   Zustände als Tönung (grün/gelb/rot 10–16 %) mit Lucide-Icon, nie als Seitenbalken; Bewegung = Ausklingen, kein Federn. */
+.fle-ikon { display: inline-flex; vertical-align: -0.18em; margin-right: 5px; }
+.fle-ikon svg { width: 1em; height: 1em; stroke-width: 2.4; }
+.fle-zwilling-titel { display: flex; align-items: center; }
+
+/* Fenster (Fehlerheft, Formel-Puzzle) */
+.fle-puzzle-modal { width: min(660px, 94vw); }
+.fle-puzzle-modal .modal-title { font-size: 1.15em; font-weight: 700; }
+.fle-puzzle { gap: 16px; font-size: var(--font-text-size); }
+.fle-puzzle-kopf { padding-right: 0; margin-top: -6px; }
+.fle-puzzle-chip { padding: 2px 10px; border-radius: 999px; border: 1px solid var(--fle-rand); background: transparent; font-size: var(--font-ui-smaller); color: var(--text-muted); }
+.fle-puzzle-chip.is-nochmal { border-color: rgba(var(--color-orange-rgb), 0.4); background: rgba(var(--color-orange-rgb), 0.1); color: color-mix(in srgb, var(--color-orange) 70%, var(--text-normal)); }
+.fle-puzzle-name { font-size: 1.4em; font-weight: 700; letter-spacing: -0.01em; }
+.fle-puzzle .fle-ergebnis { align-self: flex-start; margin: 0; }
+.fle-puzzle .fle-zahl { max-width: 360px; }
+.fle-puzzle-fuss { margin-top: 2px; }
+.fle-puzzle-fuss .fle-btn { min-width: 104px; }
+.fle-puzzle-urteil { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 999px; font-size: var(--font-ui-small); }
+.fle-puzzle-urteil.is-richtig { background: rgba(var(--color-green-rgb), 0.12); color: color-mix(in srgb, var(--color-green) 70%, var(--text-normal)); }
+.fle-puzzle-urteil.is-falsch { background: rgba(var(--color-red-rgb), 0.1); color: color-mix(in srgb, var(--color-red) 70%, var(--text-normal)); }
+.fle-formel { border-radius: var(--fle-r); padding: 18px 16px; }
+.fle-formel-platz { border-radius: var(--fle-r-klein); }
+.fle button.fle-formel-platz { contain: none; margin: 0; filter: none; box-shadow: none; font-family: inherit; }
+.fle-formel-steine { gap: 8px; }
+.fle button.fle-chip.fle-formel-stein { padding: 6px 14px; font-size: var(--font-ui-small); color: var(--text-normal); background: var(--background-primary); }
+.fle button.fle-chip.fle-formel-stein:hover { border-color: var(--fle-akzent); }
+.fle-puzzle-ende-zahl { color: var(--fle-akzent); }
+
+/* Hinweise und Rückmeldungen im selben Tonsystem */
+.fle-wirkung-ok, .fle-sicher-hinweis { padding: 6px 12px; border-radius: var(--fle-r-klein); }
+.fle-wirkung-ok.is-richtig, .fle-sicher-hinweis { color: color-mix(in srgb, var(--color-green) 70%, var(--text-normal)); }
+.fle-wirkung-ok.is-falsch, .fle-sicher-hinweis.is-warnung { color: color-mix(in srgb, var(--color-red) 70%, var(--text-normal)); font-weight: 500; }
+.fle-wirkung-frage, .fle-weg-teil, .fle-tkonten-box .fle-t { border-radius: var(--fle-r-klein); }
+.fle-wirkung-frage { border: 1px solid var(--fle-rand); background: var(--background-secondary); }
+.fle-zwilling { border-radius: var(--fle-r); }
+.fle-zwilling-titel { color: color-mix(in srgb, var(--color-orange) 75%, var(--text-normal)); }
+
+/* Trainer-Karten wie die übrigen Karten der Lernzentrale */
+.flz-trainer-karte { border-radius: 14px; background: var(--background-primary); border: 1px solid var(--flz-rand); padding: 14px 16px; }
+.flz-trainer-karte.is-faellig { border-color: color-mix(in srgb, var(--flz-hinten) 45%, var(--flz-rand)); }
+.flz-trainer-kopf b { font-weight: 650; }
+.flz-trainer-zahl { background: var(--flz-hinten); color: var(--text-on-accent); }
+.fle-loesung > .fle-ergebnis { align-self: flex-start; }
+.fle .fle-diagnose { padding-left: 0; margin: 4px 0 8px; list-style: none; }
+.fle ul.fle-diagnose { padding-inline-start: 0 !important; margin-inline-start: 0 !important; }
+
+/* ── Ausbau 18.11. (Skills lern-prinzipien, find-animation-opportunities, accessibility) ── */
+/* Drück-Feedback für Knöpfe und Chips: dezent, weil sie oft benutzt werden */
+.fle button.fle-btn, .flz button.flz-btn, .fle button.fle-chip { transition: transform 160ms var(--fle-aus, cubic-bezier(0.23, 1, 0.32, 1)), background-color 160ms, border-color 160ms; }
+.fle button.fle-btn:active:not(:disabled), .flz button.flz-btn:active:not(:disabled), .fle button.fle-chip:active:not(:disabled) { transform: scale(0.97); }
+/* Zwilling erscheint nicht schlagartig */
+.fle-zwilling.fle-frisch { animation: fle-auf 260ms var(--fle-aus) both; }
+/* Nächste Aufgabe im Fenster: kurz einblenden */
+.fle-wechsel { animation: fle-auf 180ms var(--fle-aus) both; }
+
+/* Fehlerart */
+.fle-fehlerart { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 6px; padding: 10px 12px; border-radius: var(--fle-r-klein); border: 1px solid var(--fle-rand); background: var(--background-secondary); }
+.fle-fehlerart-frage { font-size: var(--font-ui-small); font-weight: 600; color: var(--text-muted); }
+.fle-fehlerart .fle-wahl { display: flex; flex-wrap: wrap; gap: 6px; }
+.fle-fehlerart-tipp { font-size: var(--font-ui-small); color: var(--text-normal); }
+.fle-fehlerart-tipp.is-vorher { padding: 8px 12px; border-radius: var(--fle-r-klein); background: rgba(var(--color-yellow-rgb), 0.12); }
+.fle-erklaerung { border: 1px solid var(--fle-rand); border-radius: var(--fle-r-klein); padding: 6px 12px; background: var(--background-secondary); }
+.fle-erklaerung summary { cursor: pointer; font-size: var(--font-ui-small); font-weight: 600; color: var(--text-muted); }
+
+/* Kalibrierung */
+.flz-kalib-zeilen { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 6px; }
+.flz-kalib-zeile { display: grid; grid-template-columns: 84px 1fr auto; align-items: center; gap: 10px; font-size: var(--font-ui-small); }
+.flz-kalib-name { color: var(--text-muted); }
+.flz-kalib-balken { height: 8px; border-radius: 999px; background: var(--background-modifier-border); overflow: hidden; }
+.flz-kalib-fuell { display: block; height: 100%; border-radius: inherit; background: var(--flz-ak); }
+.flz-kalib-wert { font-variant-numeric: tabular-nums; color: var(--text-normal); white-space: nowrap; }
+
+/* Kontrast: kleine Hinweise in Fenstern und am Tempo-Balken nicht in der blassesten Stufe */
+.fle-puzzle .fle-leise, .fle-tempo-text, .fle-fehlerart-frage { color: var(--text-muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  .fle button.fle-btn:active, .flz button.flz-btn:active, .fle button.fle-chip:active { transform: none; }
+  .fle-zwilling.fle-frisch, .fle-wechsel { animation: none; transition: opacity 120ms ease-out; }
 }
