@@ -6,7 +6,7 @@ const path = require('path');
 module.exports = (pluginOrdner) => {
   const leer = class {};
   const stub = {
-    Plugin: leer, MarkdownRenderChild: leer, ItemView: leer, PluginSettingTab: leer, Setting: leer, Notice: leer, TFile: leer,
+    Plugin: leer, MarkdownRenderChild: leer, ItemView: leer, Modal: leer, Component: leer, PluginSettingTab: leer, Setting: leer, Notice: leer, TFile: leer,
     MarkdownRenderer: { render() {} }, setIcon() {}, parseYaml: () => ({}),
   };
   const original = Module._resolveFilename;
