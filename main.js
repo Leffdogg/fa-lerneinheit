@@ -1134,6 +1134,17 @@ function druckStufe(ist, soll) {
   return quote >= 0.8 ? 'knapp' : quote >= 0.6 ? 'hinten' : 'alarm';
 }
 
+// Mathe-Aufgaben eines Tages zu einer Zeile wie bei FA: Anteil richtig über alle Aufgaben, das schlechteste Gefühl,
+// „mit Hilfe“, sobald eine Aufgabe Hilfe brauchte; punkteZeile nimmt dann das Schlechtere aus Gefühl und Anteil.
+function tagesZeile(gruppe) {
+  const quoten = gruppe.map((z) => { const m = /(\d+)\s*%\s*richtig/.exec(z.material); return m ? Number(m[1]) : 0; });
+  const schnitt = Math.round(quoten.reduce((a, q) => a + q, 0) / quoten.length);
+  const gefuehle = gruppe.map((z) => z.einschaetzung).filter((e) => Object.keys(PUNKTE).some((k) => String(e).toLowerCase().includes(k)));
+  const gefuehl = gefuehle.sort((x, y) => (punkteZeile({ einschaetzung: x, material: '' }) ?? 0) - (punkteZeile({ einschaetzung: y, material: '' }) ?? 0))[0] || '';
+  const hilfe = gruppe.some((z) => /mit Hilfe/.test(z.material)) ? ' · mit Hilfe' : '';
+  return { ...gruppe[gruppe.length - 1], einschaetzung: gefuehl, material: `${schnitt} % richtig${hilfe}` };
+}
+
 function themaStatus(thema, zeilen, heuteISO, pruefung = '2099-12-31', niveau = STOFF.niveau) {
   const soll = sollAm(thema, heuteISO, pruefung);
   const stoff = sollStoff(thema, heuteISO, pruefung, niveau);
@@ -1143,18 +1154,19 @@ function themaStatus(thema, zeilen, heuteISO, pruefung = '2099-12-31', niveau = 
     .map((z, i) => ({ z, i }))
     .sort((a, b) => (a.z.datum === b.z.datum ? a.i - b.i : a.z.datum < b.z.datum ? -1 : 1))
     .map((x) => x.z);
-  // Mathe schreibt eine Zeile pro Aufgabe: Mehrere Zeilen am selben Tag sind eine Einschätzung (das Schlechteste zählt),
-  // sonst wäre ein Thema nach einer einzigen Einheit schon „sitzt“
+  // Mathe schreibt eine Zeile pro Aufgabe: Alle Zeilen eines Tages sind eine Einschätzung, gerechnet wie eine FA-Einheit
+  // (Änderung 18.11.: vorher zählte die schlechteste Aufgabe, eine falsche setzte den Tag auf 0 %). Siehe tagesZeile.
   // Nur Mathe-Aufgabenzeilen (Stufe „Aufgabe“) werden pro Tag zusammengefasst; FA-Zeilen zählen wie bisher einzeln
-  const proTag = new Map();
+  const gruppen = new Map();
   roh.forEach((z, i) => {
     const k = z.stufe === 'Aufgabe' ? `A:${z.datum}` : `Z:${i}`;
-    const p = punkteZeile(z);
-    const alt = proTag.get(k);
-    if (!alt || p < alt.p) proTag.set(k, { z, p });
-    else proTag.set(k, { z: alt.p === p ? z : alt.z, p: alt.p });
+    if (!gruppen.has(k)) gruppen.set(k, []);
+    gruppen.get(k).push(z);
   });
-  const treffer = [...proTag.values()].map((x) => ({ ...x.z, _p: x.p }));
+  const treffer = [...gruppen.values()].map((g) => {
+    const z = g.length > 1 || g[0].stufe === 'Aufgabe' ? tagesZeile(g) : g[0];
+    return { ...g[g.length - 1], _p: punkteZeile(z) };
+  });
   if (!treffer.length) {
     const status = heuteISO > thema.stichtag ? 'ueberfaellig' : 'offen';
     return { status, koennen: 0, soll, stoff, behandelt, druck: druckStufe(0, soll), letzte: null, wieder: null, anzahl: 0 };
@@ -1228,7 +1240,11 @@ function fahrplanKennzahlen(themen, plan, cm, tag) {
       summe += Number(g);
       i += Number(g) * tt.reduce((s, t) => s + t.koennen, 0) / tt.length;
       so += Number(g) * tt.reduce((s, t) => s + t.soll, 0) / tt.length;
-      st += Number(g) * tt.reduce((s, t) => s + (t.stoff || 0), 0) / tt.length;
+      // Wie oben nur Unterrichtsthemen; hat ein Teil keine (KDW-Disposition = Meilensteine), zählen die Meilensteine
+      // nach ihrem eigenen Zeitplan (soll), erledigte mit 100 (Korrektur 18.11.: vorher immer 0, Soll blieb unter 43 %)
+      const mitU = tt.filter((t) => t.unterricht && !t.fertig);
+      const sb = mitU.length ? mitU : tt;
+      st += Number(g) * sb.reduce((s, t) => s + (t.unterricht ? (t.stoff || 0) : t.fertig ? 100 : (t.soll || 0)), 0) / sb.length;
     }
     if (summe) { ist = Math.round(i / summe); soll = Math.round(so / summe); stoff = Math.round(st / summe); }
   }
@@ -4513,7 +4529,7 @@ class FaLerneinheit extends obsidian.Plugin {
     }));
   }
 
-  // Woran wird gerade gelernt? Aufgaben-Uhr vor laufendem Lerneinheit-Timer vor offener Datei/Modulseite mit Aktivität.
+  // Woran wird gerade gelernt? Aufgaben-Uhr vor laufendem Lerneinheit-Timer vor offener Datei mit Aktivität (Lernzentrale zählt nie).
   aktuellesModul(jetzt) {
     const u = this.daten.freiUhr;
     if (u && u.seit != null && MODUL_KEYS.includes(u.modul)) return u.modul;
@@ -4523,7 +4539,8 @@ class FaLerneinheit extends obsidian.Plugin {
     }
     const leaf = this.app.workspace.getMostRecentLeaf ? this.app.workspace.getMostRecentLeaf() : null;
     const v = leaf && leaf.view;
-    if (v && v.getViewType && v.getViewType() === VIEW_LZ) return MODUL_INFO[v.seite] ? v.seite : null;
+    // Die Lernzentrale (auch ihre Modulseiten) ist Übersicht, keine Lernzeit (Wunsch 18.11.)
+    if (v && v.getViewType && v.getViewType() === VIEW_LZ) return null;
     const f = v && v.file;
     if (!f) return null;
     const fm = (this.app.metadataCache.getFileCache(f) || {}).frontmatter || {};
@@ -4868,4 +4885,4 @@ module.exports.logik = { bezuege, zeitSchritt, modulAusPfad, zeitDazu, mischeZei
   KENNZAHLEN, pruefeFormel, formelBausteine, formelnHeute, formelNachUebung, formelGruppen,
   neuerZustand, starte, stoppeLaufenden, istWackelig, MAX_LAUF_S, stoppeNachAbsturz, nachPause, fallSekunden, matheEinheitZeile, uhrSek, uhrPause, setzeZeit,
   hakeKarteAb, fortschrittZeile, setzeFortschritt, pruefungsErgebnis, restSekunden, freischaltung, normKonto, leseBetrag, pruefeBuchung, trefferQuote,
-  leseFortschritt, punkteZeile, themaStatus, sollAm, sollStoff, unterrichtVon, niveauAus, druckStufe, noteAus, pruefungsInfo, setzePlanWert, prozentFuer, statusAus, pruefeFahrplan, setzeWiederholung, tageBis, setzeDatum, etappeTitel, weichTrennen };
+  leseFortschritt, punkteZeile, tagesZeile, themaStatus, sollAm, sollStoff, unterrichtVon, niveauAus, druckStufe, noteAus, pruefungsInfo, setzePlanWert, prozentFuer, statusAus, pruefeFahrplan, setzeWiederholung, tageBis, setzeDatum, etappeTitel, weichTrennen };
