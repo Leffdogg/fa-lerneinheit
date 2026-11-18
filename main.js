@@ -3847,35 +3847,6 @@ class LernzentraleAnsicht extends obsidian.ItemView {
       ? `${formel} Kennzahlen heute dran. Setz Zähler und Nenner aus Bausteinen zusammen.`
       : 'Heute keine Kennzahl fällig. Neue kommen dazu, sobald sie im Unterricht dran waren.',
     formel ? 'Puzzle starten' : 'Nichts fällig', formel > 0, () => new FormelModal(this.app, this.plugin, formelGruppen(plan && plan.plan, tag), neu).open());
-    if (modul === 'fa') this.baueKalibrierung(sec);
-  }
-
-  // Kalibrierung (Wunsch 18.11., Prinzip 8/9): über viele Aufgaben, nie pro Einzelfall; vorsichtig formuliert
-  baueKalibrierung(sec) {
-    const k = kalibrierung(this.plugin.daten.einheiten);
-    const gesamt = k.sicher.n + k.unsicher.n + k.geraten.n;
-    const ev = erstversuchQuote(this.plugin.daten.fehlerLog);
-    const karte = sec.appendChild(h('div', 'flz-trainer-karte flz-kalib'));
-    karte.appendChild(h('div', 'flz-trainer-kopf')).appendChild(h('b', null, 'Wie gut schätzt du dich ein?'));
-    if (gesamt < 10) {
-      karte.appendChild(h('p', 'flz-trainer-text', `Noch zu wenig Daten (${gesamt} von 10 Aufgaben mit Sicherheit). Tippe vor dem Aufdecken immer „sicher“, „unsicher“ oder „geraten“ an, dann siehst du hier, wie gut dein Gefühl stimmt.`));
-      return;
-    }
-    const zeilen = karte.appendChild(h('div', 'flz-kalib-zeilen'));
-    for (const [stufe, name] of [['sicher', 'sicher'], ['unsicher', 'unsicher'], ['geraten', 'geraten']]) {
-      const v = k[stufe];
-      const z = zeilen.appendChild(h('div', 'flz-kalib-zeile'));
-      z.appendChild(h('span', 'flz-kalib-name', `„${name}“`));
-      const balken = z.appendChild(h('span', 'flz-kalib-balken'));
-      const fuell = balken.appendChild(h('span', 'flz-kalib-fuell'));
-      fuell.style.width = `${v.prozent || 0}%`;
-      z.appendChild(h('span', 'flz-kalib-wert', v.n ? `${v.prozent} % richtig · ${v.n}` : '–'));
-    }
-    let satz = 'Dein Gefühl passt ungefähr zu deinen Ergebnissen.';
-    if (k.sicher.n >= 8 && k.sicher.prozent < 75) satz = 'Wenn du „sicher“ sagst, liegst du öfter daneben, als du denkst. Bei „sicher“ lohnt sich ein zweiter Blick vor dem Aufdecken.';
-    else if (k.geraten.n >= 5 && k.geraten.prozent >= 60) satz = 'Bei „geraten“ liegst du oft richtig – du weisst mehr, als du dir zutraust.';
-    karte.appendChild(h('p', 'flz-trainer-text', satz));
-    if (ev && ev.n >= 5) karte.appendChild(h('p', 'flz-trainer-text', `Fehlerheft, erster Versuch nach ein paar Tagen: ${ev.prozent} % richtig (${ev.n}). Das zählt mehr als die Quote direkt beim Üben.`));
   }
 
   // Die nächsten 7 Tage eines Moduls als Karten mit Abhaken; fünf sichtbar, Rest aufklappbar

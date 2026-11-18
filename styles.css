@@ -1194,14 +1194,6 @@
 .fle-erklaerung { border: 1px solid var(--fle-rand); border-radius: var(--fle-r-klein); padding: 6px 12px; background: var(--background-secondary); }
 .fle-erklaerung summary { cursor: pointer; font-size: var(--font-ui-small); font-weight: 600; color: var(--text-muted); }
 
-/* Kalibrierung */
-.flz-kalib-zeilen { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 6px; }
-.flz-kalib-zeile { display: grid; grid-template-columns: 84px 1fr auto; align-items: center; gap: 10px; font-size: var(--font-ui-small); }
-.flz-kalib-name { color: var(--text-muted); }
-.flz-kalib-balken { height: 8px; border-radius: 999px; background: var(--background-modifier-border); overflow: hidden; }
-.flz-kalib-fuell { display: block; height: 100%; border-radius: inherit; background: var(--flz-ak); }
-.flz-kalib-wert { font-variant-numeric: tabular-nums; color: var(--text-normal); white-space: nowrap; }
-
 /* Kontrast: kleine Hinweise in Fenstern und am Tempo-Balken nicht in der blassesten Stufe */
 .fle-puzzle .fle-leise, .fle-tempo-text, .fle-fehlerart-frage { color: var(--text-muted); }
 
