@@ -254,6 +254,22 @@ nachgerechnet, im Bericht als nicht offiziell kennzeichnen.
 Validieren wie die Lerneinheiten, dazu: Summe `punkte` = 90, Summe `soll` = 90. **Keine Karte aufs
 Board** — die Probeprüfung startet vom Fahrplan aus. Im Bericht: welche Quellen verwendet wurden.
 
+## Schritt 4c — Routine-Mix
+
+Vorbild: gemischte Routine-Übungen aus dem Unterricht. **Ein** Betrieb, und die Themen kommen gemischt
+dran, genau wie an der Prüfung. Bei jeder Wochenplanung genau **eine** Einheit `Routine-Mix <n>` (n
+fortlaufend, die höchste bestehende Seite + 1), fällig an einem freien Tag in der Wochenmitte.
+
+- Eine AG mit Branche und kurzer Geschichte (jede Woche eine andere Branche), im `stoff` genannt.
+- Theorie-Schritt kurz (2 Min): keine Notiz, nur `text` mit den Fallen, die in dieser Mischung lauern.
+- Ein Aufwärmen mit 2 Fällen, dann **ein** Aufgaben-Schritt mit 8–10 Fällen a), b), c) …, jeder aus
+  einem **anderen** Teil-A-Thema des Fahrplans, das schon unterrichtet ist (`unterricht:` ≤ heute).
+  Themen mit dem grössten Rückstand (Schritt 4a) zuerst, Reihenfolge danach bunt gemischt.
+- Fälle als Buchungssätze, ein- bis dreizeilig, alle Regeln aus Schritt 5 gelten. Mindestens eine Falle
+  (`loesung: []`, z. B. eine Bestellung).
+- `thema: Routine-Mix` (kein Fahrplan-Thema, zählt nicht in den Fahrplan). Wiederholen-Karten
+  ersetzt der Mix nicht.
+
 ## Schritt 5 — Aufgaben schreiben
 
 Die Fälle stehen direkt auf der Seite der Lerneinheit (Schritt 7). **Stil wie im Unterricht und an der Prüfung:**
@@ -320,6 +336,23 @@ selbst geschrieben). Jede Notiz ist in Abschnitte `## n · Titel` gegliedert. Im
 - Die Theorienotizen **gehören <NAME>. Du liest sie nur** und schreibst nie hinein.
 
 ## Schritt 7 — So sieht das To-Do aus
+
+**Zwillingsaufgabe:** In Aufgaben-Schritten bekommt **jeder** Fall mit `loesung` oder `zahl` ein Feld
+`zwilling:`, also dieselbe Aufgabe mit neuen Zahlen. Gleiche Art wie der Fall, eigener `text` und eigene
+Lösung (`loesung` bzw. `zahl` + `weg`), optional `warum`, kein `id`, kein `bezug`. Der Zwilling muss für
+sich allein lösbar sein. Das Plugin zeigt ihn nur nach einer nicht ganz richtigen Antwort; er zählt nicht
+in die Trefferquote. Nicht im Aufwärmen, nie in Probeprüfungen. Zahlen nachrechnen.
+
+```yaml
+      - id: b
+        text: "Kreditverkauf von Waren für CHF 8'000 an die Meier AG."
+        zeilen: 2
+        loesung: [["Forderungen L&L", "Handelserlöse", 8000]]
+        zwilling:
+          text: "Die AG verkauft Waren für CHF 3'400 auf Rechnung an die Huber GmbH."
+          loesung: [["Forderungen L&L", "Handelserlöse", 3400]]
+```
+
 
 Erst die Seite `<VAULT>/Support/To Do's/<Titel>.md`, dann die Karte in der Spalte
 **Financial Accounting** des Boards, datumsrichtig einsortiert: `- [ ] [[<Titel>]] @{2026-10-27}`.

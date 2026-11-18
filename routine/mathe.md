@@ -65,6 +65,10 @@ Optional: `runden`, `prozent: true`, `einheit`, `soll` (Minuten), `tasten` für 
 
 **Immer neue Varianten:** Vor dem Schreiben alle früheren Seiten derselben Aufgabenart in `<VAULT>/Support/To Do's/` lesen. Kontext, Zahlen und Frageform müssen sich unterscheiden, nie dieselbe Aufgabe noch einmal. Wiederholung heisst bei Mathe: neue Aufgabe, gleiche Situation.
 
+**Wie im Bonustest (Vorbild: Bonustest in mehreren Versionen derselben Aufgabentypen):**
+- **Zwilling:** Jeder `zahl`-Fall in den Aufgaben-Schritten bekommt `zwilling:` (gleiche Situation, neue Zahlen, eigener `text`, `zahl` und `weg` mit mindestens zwei Schritten; `hilfe` und `aufgabenart` erbt er). Er erscheint nur nach einer falschen Antwort. Format wie in SKILL.md Schritt 7.
+- **A–D:** Pro Einheit 1–2 Fälle als Auswahl: `optionen` mit genau 4 Antworten, `richtig: <Buchstabe>`, `aufgabenart` Pflicht. Die drei falschen Optionen sind Ergebnisse **typischer Fehler** (Vorzeichen, falsche Formel, Prozent statt Faktor, ein Schritt vergessen); die Lösung steht nicht immer an derselben Stelle. Im `warum` zu jeder falschen Option, welcher Fehler zu ihr führt. Jede Option nachrechnen.
+
 **Jede Zahl in Python nachrechnen**, auch die Zwischenschritte im `weg`. Die Rechnung kommt ins Protokoll. Geht etwas nicht auf, wird der Fall korrigiert, nicht geschrieben.
 
 **Prüfen vor dem Speichern** mit `pruefe.js einheit` (Schritt 7 in SKILL.md). Sie verlangt für `modul: mathe` die Pflichtfelder oben. Zusätzlich prüfen: Jede `aufgabenart` ist ein Stichwort im Mathe-Fahrplan, und jede `zahl` besteht ihren eigenen Selbsttest (`pruefeZahl(String(zahl), zahl, fall) === 1`).
