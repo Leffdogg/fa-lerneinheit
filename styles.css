@@ -1042,3 +1042,49 @@
 @media (prefers-reduced-motion: reduce) {
   .fle-sicher.is-mahnen, .fle-sicher-hinweis, .fle-ergebnis, .fle-diagnose li, .fle-t-betrag, .fle-wirkung li, .fle-weg-teil li.is-neu { animation: none !important; }
 }
+
+/* ── Lernhilfen II 18.11.: Tempo, Wirkung zuerst, Fehlerheft, Formel-Puzzle ── */
+.fle-tempo { position: relative; height: 16px; margin: 4px 0 6px; border-radius: 8px; background: var(--background-modifier-border); overflow: hidden; font-size: 0.72em; }
+.fle-tempo-fuell { position: absolute; inset: 0 auto 0 0; width: 0; background: rgba(var(--color-green-rgb), 0.45); transition: width 0.9s linear, background 0.4s; }
+.fle-tempo.is-knapp .fle-tempo-fuell { background: rgba(var(--color-orange-rgb), 0.5); }
+.fle-tempo.is-langsam .fle-tempo-fuell { background: rgba(var(--color-red-rgb), 0.45); }
+.fle-tempo-text { position: relative; padding-left: 8px; line-height: 16px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.fle-tempo.is-wartet { background: transparent; border: 1px dashed var(--background-modifier-border); }
+
+.fle-wirkung-frage { margin: 8px 0; padding: 8px 10px; border-radius: 8px; background: var(--background-secondary); }
+.fle-wirkung-frage .fle-wahl { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.fle-wirkung-ok { margin: 6px 0; padding: 4px 10px; border-radius: 6px; font-size: var(--font-ui-small); }
+.fle-wirkung-ok.is-richtig { background: rgba(var(--color-green-rgb), 0.12); }
+.fle-wirkung-ok.is-falsch { background: rgba(var(--color-red-rgb), 0.12); }
+.fle-frisch .fle-wirkung-ok { animation: fle-pop 0.35s cubic-bezier(.2,1.6,.4,1) both; }
+
+.flz-trainer { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 12px 0; }
+.flz-trainer-karte { padding: 12px 14px; border-radius: 12px; background: var(--background-secondary); border: 1px solid var(--background-modifier-border); }
+.flz-trainer-karte.is-faellig { border-color: rgba(var(--color-orange-rgb), 0.6); }
+.flz-trainer-kopf { display: flex; align-items: center; gap: 8px; }
+.flz-trainer-zahl { min-width: 22px; padding: 0 7px; border-radius: 11px; background: var(--color-orange); color: #fff; font-weight: 700; text-align: center; font-size: 0.85em; }
+.flz-trainer-text { margin: 6px 0 10px; color: var(--text-muted); font-size: var(--font-ui-small); }
+
+.fle-modal { width: min(720px, 95vw); }
+.fle-modal-kopf { font-size: var(--font-ui-small); color: var(--text-muted); margin-bottom: 6px; }
+.fle-modal-text { margin-bottom: 10px; }
+.fle-modal-pruefen { margin: 10px 0; }
+.fle-modal .fle-loesung > button { margin-top: 10px; }
+.fle-modal-zeile { font-variant-numeric: tabular-nums; }
+.fle-formel-name { margin: 4px 0 14px; }
+.fle-formel { display: flex; align-items: center; gap: 10px; margin: 8px 0 16px; padding: 12px; border-radius: 10px; background: var(--background-secondary); transition: background 0.3s; }
+.fle-formel.is-bruch { flex-direction: column; }
+.fle-formel.is-bruch .fle-formel-op { width: 100%; max-width: 420px; height: 0; border-top: 2px solid var(--text-normal); }
+.fle-formel-op { font-size: 1.4em; font-weight: 700; }
+.fle-formel-platz { min-width: 220px; min-height: 36px; border: 2px dashed var(--background-modifier-border); background: transparent; color: var(--text-faint); }
+.fle-formel-platz.is-voll { border-style: solid; border-color: var(--interactive-accent); color: var(--text-normal); font-weight: 600; }
+.fle-formel.is-richtig { background: rgba(var(--color-green-rgb), 0.15); animation: fle-pop 0.35s ease; }
+.fle-formel.is-falsch { background: rgba(var(--color-red-rgb), 0.12); animation: fle-mahnen 0.4s ease 1; }
+.fle-formel-steine { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.fle-formel-stein:disabled { opacity: 0.35; }
+.fle-formel-loesung { margin: 8px 0; padding: 6px 10px; border-radius: 6px; background: rgba(var(--color-green-rgb), 0.12); font-weight: 600; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fle-tempo-fuell { transition: none; }
+  .fle-formel.is-richtig, .fle-formel.is-falsch, .fle-frisch .fle-wirkung-ok { animation: none !important; }
+}

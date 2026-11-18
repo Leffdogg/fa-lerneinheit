@@ -183,6 +183,125 @@ function sicherFalsch(einheit, z) {
   return n;
 }
 
+// ── Erst Wirkung tippen (Wunsch 18.11.) ── vor der Buchung wählen, was passiert
+const WIRKUNGEN = ['Aktivtausch', 'Passivtausch', 'Bilanzverlängerung', 'Bilanzverkürzung', 'Gewinn steigt', 'Gewinn sinkt', 'Keine Buchung'];
+// Alle Wirkungen der Lösungszeilen (jede davon gilt als richtig); null = Fall eignet sich nicht
+function wirkungSoll(loesung) {
+  if (!Array.isArray(loesung)) return null;
+  if (!loesung.length) return ['Keine Buchung'];
+  const set = new Set();
+  for (const [so, ha] of loesung) {
+    const t = buchungsWirkung(so, ha).titel.replace(/^Erfolgswirksam: /, '');
+    if (!WIRKUNGEN.includes(t)) return null;
+    set.add(t);
+  }
+  return [...set];
+}
+
+// ── Prüfungstempo pro Fall (Wunsch 18.11.) ── gleiche Regel wie pruefTempo: 1 min pro Buchungszeile bzw. Punkt
+const tempoSoll = (fall) => 60 * pruefTempo([fall]);
+const tempoStufe = (sek, soll) => (sek <= soll ? 'gut' : sek <= soll * 1.5 ? 'knapp' : 'langsam');
+
+// ── Fehlerheft (Wunsch 18.11.) ── falsche Fälle sammeln, nach 1/3/7 Tagen wiederholen, dann sitzt er
+const FEHLER_ABSTAND = [1, 3, 7];
+const fehlerId = (einheitId, si, fallId) => `${einheitId}|${si}.${fallId}`;
+function fehlerEintragen(fehler, e, heuteISO) {
+  const id = fehlerId(e.einheit, e.si, e.fall);
+  return { ...fehler, [id]: { ...(fehler || {})[id], ...e, datum: heuteISO, stufe: 0, faellig: plusTage(heuteISO, 1) } };
+}
+function fehlerNachUebung(fehler, id, richtig, heuteISO) {
+  const alt = (fehler || {})[id];
+  if (!alt) return fehler;
+  const neu = { ...fehler };
+  if (!richtig) { neu[id] = { ...alt, stufe: 0, faellig: plusTage(heuteISO, 1), zuletzt: heuteISO }; return neu; }
+  const stufe = (alt.stufe || 0) + 1;
+  if (stufe >= FEHLER_ABSTAND.length) { delete neu[id]; return neu; }   // dreimal richtig: sitzt
+  neu[id] = { ...alt, stufe, faellig: plusTage(heuteISO, FEHLER_ABSTAND[stufe]), zuletzt: heuteISO };
+  return neu;
+}
+const faelligeFehler = (fehler, heuteISO, modul = null) => Object.entries(fehler || {})
+  .map(([id, e]) => ({ id, ...e }))
+  .filter((e) => e.faellig <= heuteISO && (!modul || (e.modul || 'fa') === modul))
+  .sort((a, b) => a.faellig.localeCompare(b.faellig) || a.datum.localeCompare(b.datum));
+
+// ── Formel-Puzzle (Wunsch 18.11.) ── die auswendig zu lernenden Kennzahlen der Prüfungsinformation.
+// Ausgelassen, weil die Definition noch unklar ist (⚠ in der Notiz): ROIC (13), Leverage (18), Verschuldungsfaktor (21),
+// Praktiker-Cashflow (24), Umschlag operatives NUV (29), Kapitalbindungsdauer (30).
+const KENNZAHLEN = [
+  ['Bilanzanalyse', 1, 'Intensität des Umlaufvermögens', 'Umlaufvermögen', '÷', 'Gesamtvermögen'],
+  ['Bilanzanalyse', 2, 'Intensität des Anlagevermögens', 'Anlagevermögen', '÷', 'Gesamtvermögen'],
+  ['Bilanzanalyse', 3, 'Fremdfinanzierungsgrad', 'Fremdkapital', '÷', 'Gesamtkapital'],
+  ['Bilanzanalyse', 4, 'Eigenfinanzierungsgrad', 'Eigenkapital', '÷', 'Gesamtkapital'],
+  ['Bilanzanalyse', 5, 'Liquiditätsgrad 1', 'flüssige Mittel', '÷', 'kurzfristiges Fremdkapital'],
+  ['Bilanzanalyse', 6, 'Liquiditätsgrad 2', 'flüssige Mittel + Forderungen', '÷', 'kurzfristiges Fremdkapital'],
+  ['Bilanzanalyse', 7, 'Liquiditätsgrad 3', 'Umlaufvermögen', '÷', 'kurzfristiges Fremdkapital'],
+  ['Bilanzanalyse', 8, 'Anlagedeckungsgrad 1', 'Eigenkapital', '÷', 'Anlagevermögen'],
+  ['Bilanzanalyse', 9, 'Anlagedeckungsgrad 2', 'Eigenkapital + langfristiges Fremdkapital', '÷', 'Anlagevermögen'],
+  ['Bilanzanalyse', 10, 'Selbstfinanzierungsgrad', 'Gewinnreserven', '÷', 'Eigenkapital'],
+  ['Erfolgsanalyse', 11, 'Rentabilität des Eigenkapitals (ROE)', 'Reingewinn', '÷', 'Ø Eigenkapital'],
+  ['Erfolgsanalyse', 12, 'Rentabilität des Gesamtkapitals (ROA)', 'EBIT', '÷', 'Ø Gesamtkapital'],
+  ['Erfolgsanalyse', 14, 'Bruttogewinnmarge', 'Bruttogewinn', '÷', 'Nettoerlös'],
+  ['Erfolgsanalyse', 15, 'EBIT-Marge', 'EBIT', '÷', 'Nettoerlös'],
+  ['Erfolgsanalyse', 16, 'EBITDA-Marge', 'EBITDA', '÷', 'Nettoerlös'],
+  ['Erfolgsanalyse', 17, 'Gewinnmarge', 'Reingewinn', '÷', 'Nettoerlös'],
+  ['Cashflow-Analyse', 19, 'Cashflow-Marge', 'Cashflow', '÷', 'Nettoerlös'],
+  ['Cashflow-Analyse', 20, 'Cashflow-Investitionsverhältnis', 'Cashflow', '÷', 'Nettoinvestitionen'],
+  ['Cashflow-Analyse', 22, 'Zinsdeckungsfaktor', 'EBIT', '÷', 'Zinsaufwand'],
+  ['Cashflow-Analyse', 23, 'Free Cashflow', 'Cashflow aus Betriebstätigkeit', '−', 'Nettoinvestitionen'],
+  ['Aktivitätsanalyse', 25, 'Debitorenumschlag', 'Kreditverkäufe', '÷', 'Ø Forderungen'],
+  ['Aktivitätsanalyse', 25, 'Debitorenfrist (Tage)', '360', '÷', 'Debitorenumschlag'],
+  ['Aktivitätsanalyse', 26, 'Lagerumschlag', 'Warenaufwand', '÷', 'Ø Warenlager'],
+  ['Aktivitätsanalyse', 26, 'Lagerdauer (Tage)', '360', '÷', 'Lagerumschlag'],
+  ['Aktivitätsanalyse', 27, 'Kreditorenumschlag', 'Krediteinkäufe', '÷', 'Ø Verbindlichkeiten L+L'],
+  ['Aktivitätsanalyse', 27, 'Kreditorenfrist (Tage)', '360', '÷', 'Kreditorenumschlag'],
+  ['Aktivitätsanalyse', 28, 'Kapitalumschlag', 'Nettoerlös', '÷', 'Ø Gesamtkapital'],
+  ['Börsenkennzahlen', 31, 'Kurs-Gewinn-Verhältnis (KGV)', 'Aktienkurs', '÷', 'Gewinn je Aktie'],
+  ['Börsenkennzahlen', 32, 'PEG Ratio', 'KGV', '÷', 'erwartetes Gewinnwachstum in %'],
+  ['Börsenkennzahlen', 33, 'Kurs-Buchwert-Verhältnis (KBV)', 'Aktienkurs', '÷', 'Eigenkapital je Aktie'],
+  ['Börsenkennzahlen', 34, 'Gewinnrendite', 'Gewinn je Aktie', '÷', 'Aktienkurs'],
+  ['Börsenkennzahlen', 35, 'Dividendenrendite', 'Dividende je Aktie', '÷', 'Aktienkurs'],
+  ['Börsenkennzahlen', 36, 'Aktienrendite', 'Dividende + Kursveränderung', '÷', 'Kurs zu Beginn'],
+  ['Börsenkennzahlen', 37, 'Payout Ratio', 'Dividende', '÷', 'Gewinn'],
+  ['Börsenkennzahlen', 38, 'Börsenkapitalisierung', 'Anzahl Aktien', '×', 'Aktienkurs'],
+].map(([gruppe, nr, name, a, op, b]) => ({ id: `${nr}·${name}`, gruppe, nr, name, a, op, b }));
+
+// Richtig, wenn beide Plätze stimmen; beim Produkt ist die Reihenfolge egal
+const pruefeFormel = (k, a, b) => (a === k.a && b === k.b) || (k.op === '×' && a === k.b && b === k.a);
+
+// Bausteine: die zwei richtigen plus Ablenker, ähnliche (gleiches Wort) zuerst; zufall() wie Math.random
+function formelBausteine(k, zufall = Math.random, n = 8) {
+  const alle = [...new Set(KENNZAHLEN.flatMap((x) => [x.a, x.b]))].filter((t) => t !== k.a && t !== k.b);
+  // ähnlich = gleiches Wort oder gleiche Wortendung („…vermögen“, „…kapital“), damit die Ablenker fordern
+  const schluessel = `${k.a} ${k.b}`.toLowerCase().split(/[^a-zäöü0-9]+/).filter((w) => w.length > 3)
+    .flatMap((w) => (w.length >= 8 ? [w, w.slice(-7)] : [w]));
+  const aehnlich = alle.filter((t) => schluessel.some((x) => t.toLowerCase().includes(x)));
+  const rest = alle.filter((t) => !aehnlich.includes(t));
+  const misch = (l) => l.map((x) => [zufall(), x]).sort((p, q) => p[0] - q[0]).map((p) => p[1]);
+  const ablenker = [...misch(aehnlich), ...misch(rest)].slice(0, n - 2);
+  return misch([k.a, k.b, ...ablenker]);
+}
+
+// Welche Kennzahlen heute dran sind: fällige zuerst, dann höchstens maxNeu neue aus schon unterrichteten Gruppen
+const FORMEL_ABSTAND = [1, 3, 7, 21];
+function formelnHeute(stand, heuteISO, erlaubt = null, maxNeu = 6) {
+  const s = stand || {};
+  const faellig = KENNZAHLEN.filter((k) => s[k.id] && s[k.id].faellig <= heuteISO);
+  const neu = KENNZAHLEN.filter((k) => !s[k.id] && (!erlaubt || erlaubt.includes(k.gruppe))).slice(0, maxNeu);
+  return [...faellig, ...neu];
+}
+function formelNachUebung(stand, id, richtig, heuteISO) {
+  const alt = (stand || {})[id] || { stufe: -1 };
+  const stufe = richtig ? Math.min(alt.stufe + 1, FORMEL_ABSTAND.length - 1) : 0;
+  const tage = richtig ? FORMEL_ABSTAND[stufe] : 1;
+  return { ...stand, [id]: { stufe, faellig: plusTage(heuteISO, tage), zuletzt: heuteISO } };
+}
+// Unterrichtet = Fahrplan-Thema mit `unterricht` ≤ heute, dessen Name mit der Gruppe beginnt
+function formelGruppen(plan, heuteISO) {
+  if (!plan || !Array.isArray(plan.themen)) return null;
+  const gruppen = [...new Set(KENNZAHLEN.map((k) => k.gruppe))];
+  return gruppen.filter((g) => plan.themen.some((t) => String(t.thema).startsWith(g) && t.unterricht && isoTag(t.unterricht) <= heuteISO));
+}
+
 // ── Mathe: Zahlen lesen und prüfen ── (rein)
 // „−2“, „1'234.50“, „1 234,5“, „CHF 1'200.–“, „3/4“, „4,5 %“ → Zahl; sonst null
 function leseZahl(s) {
@@ -1732,6 +1851,8 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
     if (this.uhrEl && !this.pruefung) this.uhrEl.textContent = uhr(gesamt);
     const zeit = this.zeitEls && this.zeitEls[z.laeuft.schritt];
     if (zeit) zeit.textContent = this.zeitText(z.laeuft.schritt);
+    const t = this.tempoLive;
+    if (t && t.bar.isConnected) t.zeige(Math.max(0, this.laufendeSekunden(t.si) - t.start), false);
   }
 
   zeitText(i) {
@@ -1924,6 +2045,7 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
   }
 
   baueFaelle(el, s, si) {
+    this.tempoLive = null;
     if (s.einleitung) this.md(el.appendChild(h('div', 'fle-md fle-einleitung')), s.einleitung);
     for (const fall of s.faelle) {
       const key = `${si}.${fall.id}`;
@@ -1933,6 +2055,7 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
       if (this.pruefung) kopf.appendChild(h('span', 'fle-fall-punkte', `${fall.punkte} P`));
       this.md(kopf.appendChild(h('div', 'fle-md')), fall.text);
       if (!this.pruefung) this.baueBezug(box, si, fall);
+      this.baueTempo(box, si, s, fall, key);
 
       this.baueTyp(box, fall, key);
       this.baueSicher(box, key);
@@ -1966,6 +2089,71 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
     this.md(zw.appendChild(h('div', 'fle-md')), fall.zwilling.text);
     this.baueTyp(zw, fall.zwilling, `${key}~z`);
     this.baueSicher(zw, `${key}~z`);
+  }
+
+
+  // Prüfungstempo pro Fall (Wunsch 18.11.): Balken mit 1 min pro Buchungszeile bzw. Punkt; live nur beim ersten offenen Fall
+  baueTempo(box, si, s, fall, key) {
+    if (this.pruefung) return;
+    const z = this.z;
+    const soll = tempoSoll(fall);
+    const bar = box.appendChild(h('div', 'fle-tempo'));
+    const fuell = bar.appendChild(h('div', 'fle-tempo-fuell'));
+    const txt = bar.appendChild(h('span', 'fle-tempo-text'));
+    const WORT = { gut: ' ✓ im Prüfungstempo', knapp: ' · etwas langsamer als an der Prüfung', langsam: ' · deutlich zu langsam' };
+    const zeige = (sek, fertig) => {
+      const st = tempoStufe(sek, soll);
+      fuell.style.width = `${Math.min(100, (sek / soll) * 100)}%`;
+      bar.className = `fle-tempo is-${st}${fertig ? ' is-fertig' : ''}`;
+      txt.textContent = `${uhr(sek)} / ${uhr(soll)}${fertig ? WORT[st] : ' Prüfungstempo'}`;
+    };
+    const e = (z.ergebnisse || {})[key];
+    if (z.aufgedeckt.includes(key)) { if (e && e.sek) zeige(e.sek, true); else bar.remove(); return; }
+    const erster = s.faelle.find((f) => !z.aufgedeckt.includes(`${si}.${f.id}`));
+    if (erster !== fall) { bar.classList.add('is-wartet'); txt.textContent = `Prüfungstempo ${uhr(soll)}`; return; }
+    const vorher = s.faelle.slice(0, s.faelle.indexOf(fall)).map((f) => (z.uhr || {})[`${si}.${f.id}`] || 0);
+    const start = vorher.length ? Math.max(...vorher) : 0;
+    this.tempoLive = { si, start, zeige, bar };
+    zeige(Math.max(0, this.laufendeSekunden(si) - start), false);
+  }
+
+  // Erst Wirkung tippen (Wunsch 18.11.): vor der Buchungstabelle wählen, was passiert. true = Tabelle noch nicht zeigen
+  baueWirkungFrage(box, fall, key) {
+    if (this.pruefung || CFG.wirkungZuerst === false || (this.e.modul && this.e.modul !== 'fa')) return false;
+    const soll = wirkungSoll(fall.loesung);
+    if (!soll || this.z.aufgedeckt.includes(key)) return false;
+    const w = (this.z.wirkung || {})[key];
+    if (w) {
+      box.appendChild(h('div', `fle-wirkung-ok ${w.richtig ? 'is-richtig' : 'is-falsch'}`, w.richtig
+        ? `✓ ${w.wahl}: richtig erkannt. Jetzt die Buchung.`
+        : `✗ Du hast „${w.wahl}“ gewählt. Richtig ist ${soll.map((x) => `„${x}“`).join(' bzw. ')}. Überleg kurz, warum, dann buche.`));
+      return false;
+    }
+    const reihe = box.appendChild(h('div', 'fle-wirkung-frage'));
+    reihe.appendChild(h('div', 'fle-label', 'Zuerst: Was passiert bei diesem Fall?'));
+    const knoepfe = reihe.appendChild(h('div', 'fle-wahl'));
+    for (const t of WIRKUNGEN) {
+      const b = knoepfe.appendChild(h('button', 'fle-btn fle-btn-leise', t));
+      b.onclick = () => {
+        this.autoStart(); this.merkeStart(key);
+        this.frisch = key;
+        this.setze({ ...this.z, wirkung: { ...(this.z.wirkung || {}), [key]: { wahl: t, richtig: soll.includes(t) } } });
+        this.baue();
+      };
+    }
+    reihe.appendChild(h('div', 'fle-leise', 'Danach erscheint die Buchungstabelle.'));
+    return true;
+  }
+
+  // Fehlerheft (Wunsch 18.11.): nicht ganz richtige Fälle merken, Wiederholung nach 1/3/7 Tagen
+  insFehlerheft(key, wert) {
+    if (this.pruefung || key.includes('~z') || wert == null || wert >= 1) return;
+    const [si, fid] = [Number(key.split('.')[0]), key.slice(key.indexOf('.') + 1)];
+    const fall = ((this.e.schritte[si] || {}).faelle || []).find((f) => String(f.id) === fid);
+    if (!fall) return;
+    const titel = String(fall.text).replace(/[*_`]/g, '').slice(0, 110);
+    this.plugin.daten.fehler = fehlerEintragen(this.plugin.daten.fehler, { einheit: this.e.id, pfad: this.pfad, si, fall: fid, modul: this.e.modul || 'fa', thema: this.e.thema, titel }, heute());
+    this.plugin.speichere();
   }
 
   // Vor dem Aufdecken: Wie sicher bist du? Danach ein Hinweis bei „sicher, aber falsch“ oder „richtig geraten“.
@@ -2006,6 +2194,7 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
 
   baueBuchung(box, fall, key) {
       const z = this.z;
+      if (this.baueWirkungFrage(box, fall, key)) return;
       const zeilen = z.eingaben[key] || Array.from({ length: fall.zeilen }, () => ['', '', '']);
       const tab = box.appendChild(h('table', 'fle-tabelle'));
       const tr0 = tab.appendChild(h('thead')).appendChild(h('tr'));
@@ -2343,6 +2532,7 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
     const leer = istLeer((z.eingaben || {})[key]);
     const sicher = leer ? null : (z.sicher || {})[key] || null;
     this.frisch = key;
+    this.insFehlerheft(key, wert);
     this.setze({ ...z, aufgedeckt: [...a], ergebnisse: { ...(z.ergebnisse || {}), [key]: { wert, sek, hilfe, ...(weg ? { weg } : {}), ...(sicher ? { sicher } : {}), ...(leer ? { leer: true } : {}) } } });
     this.baue();
   }
@@ -2350,6 +2540,7 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
   bewerteSelbst(key, wert) {
     const z = this.z;
     const alt = (z.ergebnisse || {})[key] || { sek: 0 };
+    this.insFehlerheft(key, wert);
     this.setze({ ...z, ergebnisse: { ...(z.ergebnisse || {}), [key]: { ...alt, wert } } });
     if (this.pruefung && z.abgegeben) this.speichereProbe();
     this.baue();
@@ -3481,6 +3672,7 @@ class LernzentraleAnsicht extends obsidian.ItemView {
     });
     menu('Unterlagen', '<path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/>', md.unterlagen, (e) => `<span>${escHtml(e.basename)}</span><span class="flz-menu-typ">${e.extension === 'md' ? 'Notiz' : e.extension.toUpperCase()}</span>`, unterlagenGruppen(md.unterlagen));
 
+    this.baueTrainer(seite, key, plan);
     // Fahrplan (FA, Mathe): Zahlen, Druckzeile, Balken, 7 Tage, Probeprüfung, Themen eingeklappt – Logik der Fahrplan-Ansicht
     if (plan) {
       const box = seite.appendChild(h('section', 'flz-mfahrplan'));
@@ -3493,6 +3685,37 @@ class LernzentraleAnsicht extends obsidian.ItemView {
     this.baueSieben(sec, key, d);
     const hinweis = sec.appendChild(h('div', 'flz-leer-box flz-m-hinweis'));
     hinweis.innerHTML = `<b>Noch kein Prüfungsfahrplan für ${escHtml(m.kurz)}</b><p>Sobald es einen gibt, siehst du hier Können, Soll, Note und die Themen im Detail. Theorie, Quiz und Unterlagen findest du oben in den Menüs.</p>`;
+  }
+
+
+  // Fehlerheft und Formel-Puzzle als Karten oben auf der Modulseite (Wunsch 18.11.)
+  baueTrainer(seite, key, plan) {
+    const modul = MODUL_INFO[key].modul;
+    const tag = heute();
+    const fehler = Object.values(this.plugin.daten.fehler || {}).filter((e) => (e.modul || 'fa') === modul);
+    const fFaellig = faelligeFehler(this.plugin.daten.fehler, tag, modul).length;
+    const formel = modul === 'fa' ? formelnHeute(this.plugin.daten.formeln, tag, formelGruppen(plan && plan.plan, tag)).length : 0;
+    if (!fehler.length && modul !== 'fa') return;
+    const sec = seite.appendChild(h('section', 'flz-trainer'));
+    const karte = (titel, zahl, text, knopf, an, offen) => {
+      const k = sec.appendChild(h('div', 'flz-trainer-karte' + (zahl ? ' is-faellig' : '')));
+      const kopf = k.appendChild(h('div', 'flz-trainer-kopf'));
+      kopf.appendChild(h('b', null, titel));
+      if (zahl) kopf.appendChild(h('span', 'flz-trainer-zahl', String(zahl)));
+      k.appendChild(h('p', 'flz-trainer-text', text));
+      const b = k.appendChild(h('button', 'flz-btn' + (zahl ? ' mod-cta' : ''), knopf));
+      b.disabled = !an;
+      b.onclick = () => offen();
+    };
+    const neu = () => this.render();
+    karte('Fehlerheft', fFaellig, fehler.length
+      ? `${fFaellig ? `${fFaellig} heute fällig` : 'Heute nichts fällig'} · ${fehler.length} im Heft. Was du dreimal richtig hast, fliegt raus.`
+      : 'Noch leer. Jeder Fall, den du nicht ganz richtig hast, landet hier und kommt nach 1, 3 und 7 Tagen wieder.',
+    fFaellig ? `Jetzt ${fFaellig} üben` : 'Nichts fällig', fFaellig > 0, () => new FehlerheftModal(this.app, this.plugin, modul, neu).open());
+    if (modul === 'fa') karte('Formel-Puzzle', formel, formel
+      ? `${formel} Kennzahlen heute dran. Setz Zähler und Nenner aus Bausteinen zusammen.`
+      : 'Heute keine Kennzahl fällig. Neue kommen dazu, sobald sie im Unterricht dran waren.',
+    formel ? 'Puzzle starten' : 'Nichts fällig', formel > 0, () => new FormelModal(this.app, this.plugin, formelGruppen(plan && plan.plan, tag), neu).open());
   }
 
   // Die nächsten 7 Tage eines Moduls als Karten mit Abhaken; fünf sichtbar, Rest aufklappbar
@@ -3912,6 +4135,215 @@ function kw(iso) {
   return 1 + Math.round(((d - erster) / 86400000 - 3 + ((erster.getUTCDay() + 6) % 7)) / 7);
 }
 
+
+// ── Fehlerheft-Übung ── fällige Fälle nochmals lösen (Zwilling, wenn vorhanden), Wiederholung nach 1/3/7 Tagen
+class FehlerheftModal extends obsidian.Modal {
+  constructor(app, plugin, modul, fertig) {
+    super(app);
+    this.plugin = plugin; this.fertig = fertig;
+    this.liste = faelligeFehler(plugin.daten.fehler, heute(), modul);
+    this.i = 0; this.richtig = 0; this.comp = new obsidian.Component();
+  }
+  onOpen() { this.comp.load(); this.modalEl.addClass('fle-modal'); this.zeige(); }
+  onClose() { this.comp.unload(); this.contentEl.empty(); if (this.fertig) this.fertig(); }
+  md(el, t, pfad) { obsidian.MarkdownRenderer.render(this.app, String(t), el, pfad || '', this.comp); }
+
+  async ladeFall(e) {
+    const f = this.app.vault.getAbstractFileByPath(e.pfad);
+    if (!(f instanceof obsidian.TFile)) return null;
+    const block = /```lerneinheit\r?\n([\s\S]*?)\n```/.exec(await this.app.vault.cachedRead(f));
+    if (!block) return null;
+    let r; try { r = pruefeEinheit(obsidian.parseYaml(block[1])); } catch (err) { return null; }
+    if (!r.ok) return null;
+    const fall = ((r.einheit.schritte[e.si] || {}).faelle || []).find((x) => String(x.id) === String(e.fall));
+    return fall ? (fall.zwilling || fall) : null;
+  }
+
+  async zeige() {
+    const c = this.contentEl; c.empty();
+    if (this.i >= this.liste.length) {
+      c.appendChild(h('h2', null, 'Fehlerheft geschafft'));
+      c.appendChild(h('p', null, `${this.richtig} von ${this.liste.length} richtig. Was richtig war, kommt in ein paar Tagen nochmals, der Rest schon morgen.`));
+      c.appendChild(h('button', 'mod-cta', 'Schliessen')).onclick = () => this.close();
+      return;
+    }
+    const e = this.liste[this.i];
+    const fall = await this.ladeFall(e);
+    if (!fall) {   // Einheit gelöscht oder umgebaut: Eintrag entfernen
+      const neu = { ...this.plugin.daten.fehler }; delete neu[e.id];
+      this.plugin.daten.fehler = neu; this.plugin.speichere();
+      this.liste.splice(this.i, 1); return this.zeige();
+    }
+    c.appendChild(h('div', 'fle-modal-kopf', `Fehlerheft · ${this.i + 1} von ${this.liste.length} · aus „${e.thema}“${fall.id && String(fall.id).endsWith('~z') ? ' · mit neuen Zahlen' : ''}`));
+    this.md(c.appendChild(h('div', 'fle-md fle-modal-text')), fall.text, e.pfad);
+    const eingabe = this.eingabe(c, fall);
+    const loes = h('div', 'fle-loesung');
+    const knopf = c.appendChild(h('button', 'mod-cta fle-modal-pruefen', 'Prüfen'));
+    c.appendChild(loes);
+    knopf.onclick = () => {
+      const wert = eingabe.wert();
+      knopf.remove();
+      if (wert == null) return this.selbst(loes, fall, e);
+      this.ergebnis(loes, fall, e, wert, eingabe.roh);
+    };
+  }
+
+  // Eingabefeld je nach Fall-Art; wert() = 0…1 oder null (Text: selbst bewerten)
+  eingabe(c, fall) {
+    if (fall.art === 'buchung') {
+      const zeilen = Array.from({ length: Math.max(fall.zeilen || 2, fall.loesung.length || 1) }, () => ['', '', '']);
+      const tab = c.appendChild(h('table', 'fle-tabelle'));
+      const kopf = tab.appendChild(h('thead')).appendChild(h('tr'));
+      for (const t of ['Soll', 'Haben', 'Betrag']) kopf.appendChild(h('th', null, t));
+      const tb = tab.appendChild(h('tbody'));
+      for (const r of zeilen) {
+        const tr = tb.appendChild(h('tr'));
+        r.forEach((_, i) => { const inp = tr.appendChild(h('td')).appendChild(h('input', 'fle-eingabe')); if (i < 2) inp.setAttribute('list', 'fle-konten-modal'); inp.oninput = () => { r[i] = inp.value; }; });
+      }
+      const dl = c.appendChild(h('datalist')); dl.id = 'fle-konten-modal';
+      for (const k of [...KONTENPLAN.bilanz, ...KONTENPLAN.erfolg]) dl.appendChild(h('option')).value = k;
+      return { roh: zeilen, wert: () => bewerteBuchung(zeilen, fall.loesung) };
+    }
+    if (fall.art === 'zahl') {
+      const inp = c.appendChild(h('div', 'fle-zahl')).appendChild(h('input', 'fle-eingabe fle-zahl-feld'));
+      inp.inputMode = 'decimal';
+      if (fall.einheit) inp.parentElement.appendChild(h('span', 'fle-zahl-einheit', fall.einheit));
+      return { wert: () => (inp.value.trim() ? pruefeZahlFall([[inp.value]], fall) : 0) };
+    }
+    if (istKreuz(fall)) {
+      const kprim = fall.art === 'kprim';
+      const n = kprim ? fall.kprim.length : fall.optionen.length;
+      const wahl = Array(n).fill('');
+      const liste = c.appendChild(h('div', 'fle-kreuz' + (kprim ? ' is-kprim' : '')));
+      for (let i = 0; i < n; i++) {
+        const z = liste.appendChild(h('div', 'fle-kreuz-zeile'));
+        z.appendChild(h('span', 'fle-kreuz-nr', kprim ? `${i + 1}.` : `${BUCHSTABEN[i]})`));
+        this.md(z.appendChild(h('div', 'fle-md fle-kreuz-text')), kprim ? fall.kprim[i].aussage : fall.optionen[i]);
+        const r = z.appendChild(h('div', 'fle-kreuz-wahl'));
+        for (const [w, t] of kprim ? [['r', 'richtig'], ['f', 'falsch']] : [[BUCHSTABEN[i], '○']]) {
+          const b = r.appendChild(h('button', 'fle-btn fle-kreuz-btn', t));
+          b.onclick = () => {
+            if (kprim) wahl[i] = wahl[i] === w ? '' : w;
+            else if (fall.mehrfach) wahl[i] = wahl[i] ? '' : w;
+            else for (let k = 0; k < n; k++) wahl[k] = k === i ? w : '';
+            liste.querySelectorAll('.fle-kreuz-btn').forEach((x) => x.classList.remove('is-an'));
+            liste.querySelectorAll('.fle-kreuz-zeile').forEach((zz, zi) => zz.querySelectorAll('.fle-kreuz-btn').forEach((x, xi) => {
+              const ww = kprim ? ['r', 'f'][xi] : BUCHSTABEN[zi];
+              if (wahl[zi] === ww) x.classList.add('is-an');
+            }));
+          };
+        }
+      }
+      return { wert: () => bewerteKreuz([[...wahl]], fall) };
+    }
+    const t = c.appendChild(h('textarea', 'fle-eingabe fle-text')); t.rows = 3;
+    return { wert: () => null };
+  }
+
+  ergebnis(loes, fall, e, wert, roh) {
+    const ok = wert >= 1;
+    if (ok) this.richtig += 1;
+    loes.appendChild(h('div', `fle-ergebnis ${ok ? 'is-richtig' : wert > 0 ? 'is-teilweise' : 'is-falsch'}`, ok ? '✓ richtig' : wert > 0 ? '◐ teilweise' : '✗ falsch'));
+    if (fall.art === 'buchung') {
+      const dg = buchungsDiagnose(roh, fall.loesung);
+      const ul = loes.appendChild(h('ul', 'fle-diagnose'));
+      for (const d of dg.zeilen) if (d.status !== 'ok') ul.appendChild(h('li', 'is-fehler', d.status === 'extra' ? `✗ Zeile ${d.i + 1}: unnötig` : `✗ Zeile ${d.i + 1}: ${d.status === 'betrag' ? 'Betrag falsch' : d.status === 'vertauscht' ? 'Soll und Haben vertauscht' : 'Konto falsch'}`));
+      for (const f of dg.fehlend) ul.appendChild(h('li', 'is-fehler', `✗ Fehlt: ${f[0]} / ${f[1]} ${betrag(f[2])}`));
+      loes.appendChild(h('div', 'fle-label', 'Lösung'));
+      if (!fall.loesung.length) loes.appendChild(h('div', null, 'Keine Buchung nötig.'));
+      for (const [so, ha, be] of fall.loesung) loes.appendChild(h('div', 'fle-modal-zeile', `${so} / ${ha} · ${betrag(be)}`));
+    } else if (fall.art === 'zahl') {
+      loes.appendChild(h('div', 'fle-zahl-loesung', `${(Array.isArray(fall.zahl) ? fall.zahl : [fall.zahl]).map(betrag).join('; ')}${fall.einheit ? ' ' + fall.einheit : ''}`));
+      if (Array.isArray(fall.weg)) { const ol = loes.appendChild(h('ol', 'fle-weg')); for (const w of fall.weg) this.md(ol.appendChild(h('li')), w); }
+    } else if (fall.art === 'auswahl') loes.appendChild(h('div', null, `Richtig: ${fall.richtig.join(', ')}`));
+    else if (fall.art === 'kprim') fall.kprim.forEach((a, i) => loes.appendChild(h('div', null, `${i + 1}. ${a.richtig ? 'richtig' : 'falsch'}${a.warum ? ' – ' + a.warum : ''}`)));
+    if (fall.warum) this.md(loes.appendChild(h('div', 'fle-md fle-warum')), fall.warum, e.pfad);
+    this.plugin.daten.fehler = fehlerNachUebung(this.plugin.daten.fehler, e.id, ok, heute());
+    this.plugin.speichere();
+    const st = (this.plugin.daten.fehler || {})[e.id];
+    loes.appendChild(h('div', 'fle-leise', ok ? (st ? `Kommt am ${kurz(st.faellig)} nochmals.` : 'Dreimal richtig: raus aus dem Heft. 🎉') : 'Kommt morgen nochmals.'));
+    const w = loes.appendChild(h('button', 'mod-cta', 'Weiter'));
+    w.onclick = () => { this.i += 1; this.zeige(); };
+    w.focus();
+  }
+
+  selbst(loes, fall, e) {
+    loes.appendChild(h('div', 'fle-label', 'Musterantwort'));
+    this.md(loes.appendChild(h('div', 'fle-md')), fall.antwort, e.pfad);
+    loes.appendChild(h('div', 'fle-label', 'Stimmt deine Antwort?'));
+    const r = loes.appendChild(h('div', 'fle-wahl'));
+    for (const [t, w] of [['richtig', 1], ['teilweise', 0.5], ['falsch', 0]]) {
+      r.appendChild(h('button', 'fle-btn', t)).onclick = () => { r.remove(); this.ergebnis(loes, { ...fall, art: 'antwort', warum: null }, e, w); };
+    }
+  }
+}
+
+// ── Formel-Puzzle ── Zähler und Nenner der Kennzahlen aus Bausteinen setzen, Wiederholung nach 1/3/7/21 Tagen
+class FormelModal extends obsidian.Modal {
+  constructor(app, plugin, erlaubt, fertig) {
+    super(app);
+    this.plugin = plugin; this.fertig = fertig;
+    this.liste = formelnHeute(plugin.daten.formeln, heute(), erlaubt);
+    this.gesehen = new Set(); this.i = 0; this.richtig = 0; this.anzahl = this.liste.length;
+  }
+  onOpen() { this.modalEl.addClass('fle-modal'); this.zeige(); }
+  onClose() { this.contentEl.empty(); if (this.fertig) this.fertig(); }
+
+  zeige() {
+    const c = this.contentEl; c.empty();
+    if (this.i >= this.liste.length) {
+      c.appendChild(h('h2', null, 'Formel-Puzzle geschafft'));
+      c.appendChild(h('p', null, `${this.richtig} von ${this.anzahl} Kennzahlen beim ersten Versuch richtig. Die falschen hast du nochmals gesetzt; sie kommen morgen wieder.`));
+      c.appendChild(h('button', 'mod-cta', 'Schliessen')).onclick = () => this.close();
+      return;
+    }
+    const k = this.liste[this.i];
+    const erstmals = !this.gesehen.has(k.id);
+    c.appendChild(h('div', 'fle-modal-kopf', `Formel-Puzzle · ${Math.min(this.i + 1, this.anzahl)} von ${this.anzahl}${erstmals ? '' : ' · zweiter Versuch'} · Nr. ${k.nr} ${k.gruppe}`));
+    c.appendChild(h('h2', 'fle-formel-name', `${k.name} =`));
+    const platz = [null, null];
+    const formel = c.appendChild(h('div', `fle-formel ${k.op === '÷' ? 'is-bruch' : 'is-reihe'}`));
+    const slots = [0, 1].map((i) => {
+      const b = formel.appendChild(h('button', 'fle-formel-platz', i ? 'Nenner' : 'Zähler'));
+      if (k.op !== '÷') b.textContent = i ? 'rechts' : 'links';
+      if (i === 0) formel.appendChild(h('div', 'fle-formel-op', k.op === '÷' ? '' : k.op));
+      b.onclick = () => { platz[i] = null; male(); };
+      return b;
+    });
+    const steine = c.appendChild(h('div', 'fle-formel-steine'));
+    const knoepfe = formelBausteine(k).map((t) => {
+      const b = steine.appendChild(h('button', 'fle-btn fle-formel-stein', t));
+      b.onclick = () => { const i = platz[0] == null ? 0 : platz[1] == null ? 1 : -1; if (i < 0) return; platz[i] = t; male(); };
+      return b;
+    });
+    const pruefen = c.appendChild(h('button', 'mod-cta fle-modal-pruefen', 'Prüfen'));
+    const male = () => {
+      slots.forEach((b, i) => { b.textContent = platz[i] || (k.op === '÷' ? (i ? 'Nenner' : 'Zähler') : (i ? 'rechts' : 'links')); b.classList.toggle('is-voll', !!platz[i]); });
+      knoepfe.forEach((b) => { b.disabled = platz.includes(b.textContent); });
+      pruefen.disabled = platz.includes(null);
+    };
+    male();
+    pruefen.onclick = () => {
+      const ok = pruefeFormel(k, platz[0], platz[1]);
+      if (erstmals) {
+        this.gesehen.add(k.id);
+        if (ok) this.richtig += 1;
+        this.plugin.daten.formeln = formelNachUebung(this.plugin.daten.formeln, k.id, ok, heute());
+        this.plugin.speichere();
+        if (!ok) this.liste.push(k);   // gleich nochmals am Ende dieser Runde
+      }
+      formel.classList.add(ok ? 'is-richtig' : 'is-falsch');
+      [...slots, ...knoepfe, pruefen].forEach((b) => { b.disabled = true; });
+      const r = c.appendChild(h('div', `fle-ergebnis ${ok ? 'is-richtig' : 'is-falsch'}`, ok ? '✓ richtig' : '✗ falsch'));
+      r.classList.add('fle-frisch');
+      if (!ok) c.appendChild(h('div', 'fle-formel-loesung', `${k.name} = ${k.a} ${k.op} ${k.b}`));
+      const w = c.appendChild(h('button', 'mod-cta', 'Weiter'));
+      w.onclick = () => { this.i += 1; this.zeige(); };
+      w.focus();
+    };
+  }
+}
+
 class Einstellungen extends obsidian.PluginSettingTab {
   constructor(app, plugin) { super(app, plugin); this.plugin = plugin; }
   display() {
@@ -3953,6 +4385,8 @@ class Einstellungen extends obsidian.PluginSettingTab {
       .addToggle((t) => t.setValue(CFG.startseite !== false).onChange(async (v) => { CFG.startseite = v; await speichere(); }));
     new obsidian.Setting(el).setName('Linke Leiste beim Start zuklappen').setDesc('Die Ordner-Leiste ist beim Start zu. Aufklappen geht jederzeit oben links.')
       .addToggle((t) => t.setValue(CFG.leisteZu !== false).onChange(async (v) => { CFG.leisteZu = v; await speichere(); }));
+    new obsidian.Setting(el).setName('Erst Wirkung tippen').setDesc('Bei Buchungen zuerst wählen, was passiert (Aktivtausch, Gewinn steigt …), danach erscheint die Tabelle.')
+      .addToggle((t) => t.setValue(CFG.wirkungZuerst !== false).onChange(async (v) => { CFG.wirkungZuerst = v; await speichere(); }));
     new obsidian.Setting(el).setName('Wochenziel (Stunden)').setDesc('Wie viele Stunden du pro Woche lernen willst.')
       .addText((t) => t.setValue(String((Number(CFG.wochenzielMin) || 360) / 60)).onChange(async (v) => {
         const n = Number(String(v).replace(',', '.'));
@@ -4430,6 +4864,8 @@ class FaLerneinheit extends obsidian.Plugin {
 module.exports = FaLerneinheit;
 module.exports.logik = { bezuege, zeitSchritt, modulAusPfad, zeitDazu, mischeZeit, wochenzielFuer, auswahlWahl, bewerteKprim, bewerteAuswahl, kprimWahl, videosFuer, ERKLAERVIDEOS, folgtHinweis, kw,unterlagenGruppen, wiederholKarte, quizListe, themaMitQuiz, NEUE_MODULE, tafelSpalte, hakeAb, naechsteSiebenMitRest, UNTERLAGEN, PRUEFUNG, pruefungsSatz, modulDateien, letzteRunde, naechsteSieben, erledigtListe, fakten, fahrplanKennzahlen, hochrechnung, leseBoard, etappeHeute, lernMinuten, wocheVon, serie, tagesziel, MODUL_SPALTEN, pruefTempo, bewerteBuchung, prozentFuerMit, uebernahmeAblauf, istVorschlagSeite, pdfSeiten, pruefeSpick, spickAenderungen, uebernimmVorschlag, spickHtml, SPICK_MAX_ZEICHEN, noteMit, naechsteTodos, matheZeilen, cfgFuer, MODULE, leseZahl, leseZahlen, pruefeZahl, pruefeMenge, pruefeEinheit, KONTENPLAN, EINSCHAETZUNGEN, istKonto,
   buchungsDiagnose, kontoArt, buchungsWirkung, sicherFalsch,
+  WIRKUNGEN, wirkungSoll, tempoSoll, tempoStufe, FEHLER_ABSTAND, fehlerId, fehlerEintragen, fehlerNachUebung, faelligeFehler,
+  KENNZAHLEN, pruefeFormel, formelBausteine, formelnHeute, formelNachUebung, formelGruppen,
   neuerZustand, starte, stoppeLaufenden, istWackelig, MAX_LAUF_S, stoppeNachAbsturz, nachPause, fallSekunden, matheEinheitZeile, uhrSek, uhrPause, setzeZeit,
   hakeKarteAb, fortschrittZeile, setzeFortschritt, pruefungsErgebnis, restSekunden, freischaltung, normKonto, leseBetrag, pruefeBuchung, trefferQuote,
   leseFortschritt, punkteZeile, themaStatus, sollAm, sollStoff, unterrichtVon, niveauAus, druckStufe, noteAus, pruefungsInfo, setzePlanWert, prozentFuer, statusAus, pruefeFahrplan, setzeWiederholung, tageBis, setzeDatum, etappeTitel, weichTrennen };
