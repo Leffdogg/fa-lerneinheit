@@ -1090,6 +1090,9 @@ function fallSekunden(z, key) {
   const schritt = key.split('.')[0];
   let davor = 0;
   for (const [k, s] of Object.entries(uhr)) if (k !== key && k.split('.')[0] === schritt && s < uhr[key] && s > davor) davor = s;
+  // Selbst gestartet (Wunsch 19.11.): Nachschauen beim vorherigen Fall zählt nicht mit
+  const st = (z.tempoStart || {})[key];
+  if (st != null && st < uhr[key]) davor = Math.max(davor, st);
   return Math.min(1800, Math.max(0, uhr[key] - davor));
 }
 
@@ -1866,14 +1869,10 @@ function baueFehlerartWahl(box, plugin, id) {
   reihe.setAttribute('aria-label', 'Was für ein Fehler war das?');
   reihe.appendChild(h('span', 'fle-fehlerart-frage', 'Was für ein Fehler war das?'));
   const knoepfe = reihe.appendChild(h('div', 'fle-wahl'));
-  const tipp = reihe.appendChild(h('div', 'fle-fehlerart-tipp'));
-  tipp.setAttribute('role', 'status');
+  // Tipp nach der Wahl entfernt (Wunsch 19.11.): nur noch die Auswahl, sie steuert das Fehlerheft
   const male = () => {
     const art = ((plugin.daten.fehler || {})[id] || {}).art;
     knoepfe.querySelectorAll('button').forEach((b) => { const an = b.dataset.art === art; b.classList.toggle('is-an', an); b.setAttribute('aria-pressed', String(an)); });
-    const f = FEHLERARTEN.find((x) => x[0] === art);
-    tipp.textContent = f ? f[3] : '';
-    tipp.hidden = !f;
   };
   for (const [art, name, erkl] of FEHLERARTEN) {
     const b = knoepfe.appendChild(h('button', 'fle-btn fle-btn-leise fle-sicher-btn', name));
@@ -2010,10 +2009,27 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
     const kopf = this.root.appendChild(h('div', 'fle-kopf'));
     kopf.appendChild(h('div', 'fle-thema', this.e.thema));
     if (this.e.stoff) kopf.appendChild(h('div', 'fle-stoff', this.e.stoff));
+    // Fortschritt über alle Fälle (Wunsch 19.11.): gleitet vom letzten Stand zum neuen
+    const faelle = this.e.schritte.flatMap((s, si) => (s.faelle || []).map((f) => `${si}.${f.id}`));
+    if (faelle.length && !this.pruefung) {
+      const anteil = faelle.filter((k) => (z.aufgedeckt || []).includes(k)).length / faelle.length;
+      const pb = kopf.appendChild(h('div', 'fle-fortschritt'));
+      pb.setAttribute('role', 'progressbar');
+      pb.setAttribute('aria-valuenow', String(Math.round(anteil * 100)));
+      const fu = pb.appendChild(h('div', 'fle-fortschritt-fuell' + (anteil >= 1 ? ' is-voll' : '')));
+      const alt = this.letzterAnteil == null ? anteil : this.letzterAnteil;
+      fu.style.width = `${alt * 100}%`;
+      if (alt !== anteil) window.requestAnimationFrame(() => window.requestAnimationFrame(() => { fu.style.width = `${anteil * 100}%`; }));
+      this.letzterAnteil = anteil;
+    }
 
     const rahmen = this.root.appendChild(h('div', 'fle-rahmen'));
     const spalte = rahmen.appendChild(h('nav', 'fle-spalte'));
-    const haupt = rahmen.appendChild(h('div', 'fle-haupt'));
+    // Schritt-Übergang (Wunsch 19.11.): vorwärts kommt der Inhalt von rechts, zurück von links
+    const vorher = this.letzterSchritt;
+    const wechsel = vorher != null && vorher !== aktiv ? (aktiv > vorher ? ' is-wechsel is-vor' : ' is-wechsel is-zurueck') : '';
+    const haupt = rahmen.appendChild(h('div', 'fle-haupt' + wechsel));
+    this.letzterSchritt = aktiv;
 
     // Timer (Probeprüfung: Countdown ohne Pause)
     if (this.pruefung) {
@@ -2032,9 +2048,13 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
     this.zeitEls = [];
     const liste = spalte.appendChild(h('ol', 'fle-liste'));
     this.schritte.forEach((s, i) => {
+      if (i === this.schritte.length - 1) window.setTimeout(() => { this.fertigBekannt = true; }, 0);
       const fertig = (z.fertig || []).includes(i) || (s.art === 'einschaetzen' && z.einschaetzung) || (s.art === 'abgabe' && z.abgegeben);
       const li = liste.appendChild(h('li'));
-      const b = li.appendChild(h('button', 'fle-schritt' + (i === aktiv ? ' is-aktiv' : '') + (fertig ? ' is-fertig' : '')));
+      if (!this.fertigGesehen) this.fertigGesehen = new Set();
+      const frischFertig = fertig && this.fertigBekannt && !this.fertigGesehen.has(i);
+      if (fertig) this.fertigGesehen.add(i);
+      const b = li.appendChild(h('button', 'fle-schritt' + (i === aktiv ? ' is-aktiv' : '') + (fertig ? ' is-fertig' : '') + (frischFertig ? ' is-neu' : '')));
       if (i === aktiv) b.setAttribute('aria-current', 'step');
       const ikon = b.appendChild(h('span', 'fle-status'));
       obsidian.setIcon(ikon, fertig ? 'check' : i === aktiv ? 'circle-dot' : 'circle');
@@ -2047,6 +2067,27 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
       this.zeitEls[i] = txt.appendChild(h('span', 'fle-schritt-zeit', nebentext));
       b.onclick = () => this.geheZu(i);
     });
+    // Wandernder Zeiger hinter dem aktiven Schritt: gleitet vom alten zum neuen Schritt
+    const zeiger = liste.appendChild(h('span', 'fle-zeiger'));
+    zeiger.setAttribute('aria-hidden', 'true');
+    const lage = (i) => { const b = liste.querySelectorAll('.fle-schritt')[i]; if (!b) return null; const r = b.getBoundingClientRect(), o = liste.getBoundingClientRect(); return { l: r.left - o.left, t: r.top - o.top, w: r.width, h: r.height }; };
+    const setze = (p) => { if (p) Object.assign(zeiger.style, { left: `${p.l}px`, top: `${p.t}px`, width: `${p.w}px`, height: `${p.h}px` }); };
+    window.requestAnimationFrame(() => {
+      const neu = lage(aktiv);
+      if (!neu) return;
+      if (vorher != null && vorher !== aktiv && lage(vorher)) {
+        zeiger.classList.add('is-ohne'); setze(lage(vorher)); void zeiger.offsetWidth; zeiger.classList.remove('is-ohne');
+      }
+      setze(neu);
+      zeiger.classList.add('is-da');
+    });
+    // Liste verändert noch ihre Höhe (Schrift, Zeiten): Zeiger nachführen, sonst sitzt er einen Schritt daneben
+    if (this.zeigerRO) this.zeigerRO.disconnect();
+    if (typeof ResizeObserver === 'function') {
+      this.zeigerRO = new ResizeObserver(() => { if (zeiger.classList.contains('is-da')) setze(lage(aktiv)); });
+      this.zeigerRO.observe(liste);
+      liste.querySelectorAll('.fle-schritt').forEach((b) => this.zeigerRO.observe(b));
+    }
 
     // Aktueller Schritt
     const s = this.schritte[aktiv];
@@ -2137,6 +2178,7 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
     const liste = bezuege(this.e.schritte, si, fall);
     if (!Array.isArray(liste) || !liste.length) return;
     for (const b of liste) {
+      if (b.fall && b.si === si) continue;   // Fall steht direkt darüber auf derselben Seite (Wunsch 19.11.)
       const ref = box.appendChild(h('div', 'fle-bezug'));
       const s = this.e.schritte[b.si];
       const wo = b.si === si ? '' : `${s.titel} · `;
@@ -2169,11 +2211,8 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
       if (this.pruefung) kopf.appendChild(h('span', 'fle-fall-punkte', `${fall.punkte} P`));
       this.md(kopf.appendChild(h('div', 'fle-md')), fall.text);
       if (!this.pruefung) this.baueBezug(box, si, fall);
-      this.baueTempo(box, si, s, fall, key);
 
       this.baueTyp(box, fall, key);
-      this.baueSicher(box, key);
-      this.baueZwilling(box, fall, key);
     }
     this.frisch = null;   // nur der eben aufgedeckte Fall animiert, nicht jedes Neuzeichnen
     if (this.e.modul === 'mathe') return;
@@ -2241,8 +2280,24 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
     if (z.aufgedeckt.includes(key)) { if (e && e.sek) zeige(e.sek, true); else bar.remove(); return; }
     const erster = s.faelle.find((f) => !z.aufgedeckt.includes(`${si}.${f.id}`));
     if (erster !== fall) { bar.classList.add('is-wartet'); txt.textContent = `Prüfungstempo ${uhr(soll)}`; return; }
-    const vorher = s.faelle.slice(0, s.faelle.indexOf(fall)).map((f) => (z.uhr || {})[`${si}.${f.id}`] || 0);
-    const start = vorher.length ? Math.max(...vorher) : 0;
+    // Ab dem zweiten Fall startet der Balken erst auf Knopfdruck (Wunsch 19.11.): erst Fehler anschauen, dann weiter
+    const ts = (z.tempoStart || {})[key];
+    const idx = s.faelle.indexOf(fall);
+    if (ts == null && idx > 0) {
+      bar.className = 'fle-tempo-start';
+      bar.empty();
+      const knopf = bar.appendChild(h('button', 'fle-btn mod-cta', 'Aufgabe starten'));
+      bar.appendChild(h('span', 'fle-leise', `Prüfungstempo ${uhr(soll)}`));
+      const los = () => {
+        this.z.tempoStart = { ...(this.z.tempoStart || {}), [key]: this.laufendeSekunden(si) };
+        this.autoStart();
+        this.setze(this.z);
+        this.baue();
+      };
+      knopf.addEventListener('click', los);
+      return;
+    }
+    const start = ts != null ? ts : 0;
     this.tempoLive = { si, start, zeige, bar };
     zeige(Math.max(0, this.laufendeSekunden(si) - start), false);
   }
@@ -2253,6 +2308,8 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
     const soll = wirkungSoll(fall.loesung);
     if (!soll || this.z.aufgedeckt.includes(key)) return false;
     const w = (this.z.wirkung || {})[key];
+    // Ältere Stände: „Keine Buchung“ schon gewählt, aber noch nicht aufgelöst → jetzt nachholen
+    if (w && soll.length === 1 && soll[0] === 'Keine Buchung') { window.setTimeout(() => { if (!this.z.aufgedeckt.includes(key)) this.deckeAuf(key, w.wahl === 'Keine Buchung' ? 1 : 0, true); }, 0); return true; }
     if (w) {
       box.appendChild(h('div', `fle-wirkung-ok ${w.richtig ? 'is-richtig' : 'is-falsch'}`, w.richtig
         ? `✓ ${w.wahl}: richtig erkannt. Jetzt die Buchung.`
@@ -2268,6 +2325,8 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
         this.autoStart(); this.merkeStart(key);
         this.frisch = key;
         this.setze({ ...this.z, wirkung: { ...(this.z.wirkung || {}), [key]: { wahl: t, richtig: soll.includes(t) } } });
+        // Ist „Keine Buchung“ die Lösung, gibt es nichts zu buchen: direkt auflösen statt leere Tabelle (Wunsch 19.11.)
+        if (soll.length === 1 && soll[0] === 'Keine Buchung') { this.deckeAuf(key, t === 'Keine Buchung' ? 1 : 0, true); return; }
         this.baue();
       };
     }
@@ -2348,6 +2407,8 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
       plus.onclick = () => { const r = ['', '', '']; zeilen.push(r); zeileBauen(r); merke(); };
 
       const offen = z.aufgedeckt.includes(key);
+      // Aufgelöst ohne eigene Eingabe (z. B. „Keine Buchung“ per Knopf): leere Tabelle und „+ Zeile“ weglassen (19.11.)
+      if (offen && istLeer(z.eingaben[key])) { tab.remove(); plus.remove(); }
       const loes = box.appendChild(h('div', 'fle-loesung'));
       if (!offen && this.pruefung) {
         // Probeprüfung: Lösungen erst nach der Abgabe
@@ -2369,7 +2430,6 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
             tr.appendChild(h('td', null, so)); tr.appendChild(h('td', null, ha));
             tr.appendChild(h('td', 'is-betrag', typeof be === 'number' ? betrag(be) : String(be)));
           }
-          this.baueTKonten(loes, fall.loesung);
         }
         if (fall.warum) this.md(loes.appendChild(h('div', 'fle-md fle-warum')), fall.warum);
       }
@@ -2643,12 +2703,14 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
     if ((z.aufgedeckt || []).includes(key)) return;
     if (!z.uhr) z.uhr = {};
     z.uhr[key] = this.laufendeSekunden(Number(key.split('.')[0]));
+    if (!z.tempoStart) z.tempoStart = {};
+    if (z.tempoStart[key] == null) z.tempoStart[key] = z.uhr[key];   // tippen ohne ▶ startet ab jetzt
   }
 
   // Aufdecken friert das Ergebnis ein: Abschreiben danach ändert nichts mehr
-  deckeAuf(key, wert) {
+  deckeAuf(key, wert, beantwortet = false) {   // beantwortet: Antwort kam per Knopf („Keine Buchung“), nicht über Felder
     const z = this.z;
-    if (!this.pruefung && !istLeer((z.eingaben || {})[key]) && !(z.sicher || {})[key]) {
+    if (false) {   // „Wie sicher?“ entfernt (Wunsch 19.11.)
       new obsidian.Notice('Zuerst kurz antippen: Wie sicher bist du?');
       const r = this.root && [...this.root.querySelectorAll('.fle-sicher')].find((x) => x.dataset.sicher === key);
       if (r) { r.classList.remove('is-mahnen'); void r.offsetWidth; r.classList.add('is-mahnen'); }
@@ -2659,7 +2721,7 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
     const a = new Set(z.aufgedeckt); a.add(key);
     const weg = (z.wegStufe || {})[key] || 0;
     const hilfe = ((z.hilfe || {})[key] || 0) + weg;
-    const leer = istLeer((z.eingaben || {})[key]);
+    const leer = !beantwortet && istLeer((z.eingaben || {})[key]);
     const sicher = leer ? null : (z.sicher || {})[key] || null;
     this.insFehlerheft(key, wert, sicher);
     this.frisch = key;
@@ -2676,6 +2738,29 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
     this.baue();
   }
 
+  // Punkte-Flug (Wunsch 19.11.): ein Stern fliegt vom Ergebnis zum Fortschrittsbalken und lässt ihn aufleuchten
+  punkteFlug(von) {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const ziel = this.root && [...this.root.querySelectorAll('.fle-fortschritt-fuell')].find((x) => x.offsetParent);
+    if (!von.isConnected || !ziel) return;
+    const a = von.getBoundingClientRect(), b = ziel.getBoundingClientRect();
+    const st = document.body.appendChild(h('div', 'fle-flugstern'));
+    obsidian.setIcon(st, 'star');
+    const x0 = a.left + 14, y0 = a.top + a.height / 2, x1 = b.right - 6, y1 = b.top + b.height / 2;
+    const mx = (x0 + x1) / 2 + 60, my = Math.min(y0, y1) - 80;
+    const bahn = [0, 0.25, 0.5, 0.75, 1].map((t) => {
+      const x = (1 - t) ** 2 * x0 + 2 * (1 - t) * t * mx + t * t * x1;
+      const y = (1 - t) ** 2 * y0 + 2 * (1 - t) * t * my + t * t * y1;
+      return { transform: `translate(${x - 9}px, ${y - 9}px) scale(${1 + Math.sin(t * Math.PI) * 0.6}) rotate(${t * 300}deg)`, opacity: t > 0.9 ? 0.6 : 1 };
+    });
+    const ani = st.animate(bahn, { duration: 750, easing: 'cubic-bezier(.4,0,.2,1)' });
+    ani.onfinish = () => {
+      st.remove();
+      const pb = ziel.parentElement;
+      pb.classList.remove('is-blitz'); void pb.offsetWidth; pb.classList.add('is-blitz');
+    };
+  }
+
   zeigeErgebnis(el, key) {
     const e = (this.z.ergebnisse || {})[key];
     if (!e) return;
@@ -2683,8 +2768,10 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
     if (e.wert == null) { el.appendChild(h('div', 'fle-ergebnis is-offen', `Noch nicht bewertet${zeit}`)); return; }
     const t = ERGEBNIS_TEXT(e.wert);
     const cls = e.wert >= 1 ? 'is-richtig' : e.wert > 0 ? 'is-teilweise' : 'is-falsch';
-    const erg = el.appendChild(h('div', `fle-ergebnis ${cls}`, `${e.wert >= 1 ? '✓' : e.wert > 0 ? '◐' : '✗'} ${t}${zeit}`));
+    const neu = this.frisch === key;
+    const erg = el.appendChild(h('div', `fle-ergebnis ${cls}${neu ? ' is-neu' : ''}`, `${e.wert >= 1 ? '✓' : e.wert > 0 ? '◐' : '✗'} ${t}${zeit}`));
     erg.setAttribute('role', 'status');
+    if (neu && e.wert >= 1) window.setTimeout(() => funken(erg), 120);   // Serie + Stern-Flug entfernt (19.11.)
   }
 
   // ── Probeprüfung ──
@@ -2835,7 +2922,21 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
     for (const w of EINSCHAETZUNGEN) {
       const b = reihe.appendChild(h('button', 'fle-btn' + (z.einschaetzung === w ? ' mod-cta' : ''), w));
       b.setAttribute('aria-pressed', String(z.einschaetzung === w));
-      b.onclick = async () => { await this.plugin.schliesseAb(this.e, w); this.baue(); };
+      b.onclick = async () => { const erstes = !z.einschaetzung; await this.plugin.schliesseAb(this.e, w); this.feiern = erstes; this.baue(); };
+    }
+    if (this.feiern) {
+      this.feiern = false;
+      const perfekt = q && q.prozent >= 100;
+      const g = el.insertBefore(h('div', 'fle-geschafft' + (perfekt ? ' is-perfekt' : '')), el.firstChild);
+      const ring = g.appendChild(h('div', 'fle-geschafft-ring'));
+      ring.innerHTML = '<svg viewBox="0 0 52 52" aria-hidden="true"><circle cx="26" cy="26" r="23"/><path d="M15 27 l8 8 l15 -17"/></svg>';
+      const tx = g.appendChild(h('div', 'fle-geschafft-text'));
+      tx.appendChild(h('strong', null, perfekt ? 'Perfekt! Alles richtig' : 'Einheit geschafft'));
+      if (q) { const zahl = tx.appendChild(h('span')); zaehleHoch(zahl, q.prozent, ' % richtig'); }
+      window.requestAnimationFrame(() => g.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+      const farben = perfekt ? ['#f5c542', '#ffd76a', '#e0a100', '#fff1b8', '#4caf50'] : ['#4caf50', '#f5c542', '#3b82f6', '#ff6b4a', '#a855f7'];
+      window.setTimeout(() => schiesseKonfetti(farben), 350);
+      if (perfekt) window.setTimeout(() => schiesseKonfetti(farben), 1300);
     }
     if (z.einschaetzung) el.appendChild(h('div', 'fle-leise', z.board ? 'Gespeichert, die Karte liegt in „Erledigt“.' : 'Gespeichert.'));
   }
@@ -2904,6 +3005,24 @@ function schiesseKonfetti(farben) {
     if ((sichtbar || alter < 400) && blass > 0) requestAnimationFrame(bild); else cv.remove();
   };
   requestAnimationFrame(bild);
+}
+
+// Funken um ein Element (Wunsch 19.11.: Belohnung bei „richtig“), DOM-Teilchen, räumen sich selbst auf
+function funken(el, anzahl = 14) {
+  if (!el || (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
+  const farben = ['var(--color-green)', 'var(--color-yellow)', 'var(--interactive-accent)', 'var(--color-cyan)'];
+  const wolke = el.appendChild(h('span', 'fle-funken'));
+  wolke.setAttribute('aria-hidden', 'true');
+  for (let i = 0; i < anzahl; i++) {
+    const f = wolke.appendChild(h('i'));
+    const w = (i / anzahl) * Math.PI * 2 + Math.random() * 0.4;
+    const r = 28 + Math.random() * 34;
+    f.style.setProperty('--dx', `${Math.cos(w) * r}px`);
+    f.style.setProperty('--dy', `${Math.sin(w) * r - 8}px`);
+    f.style.background = farben[i % farben.length];
+    f.style.animationDelay = `${Math.random() * 60}ms`;
+  }
+  window.setTimeout(() => wolke.remove(), 900);
 }
 
 function zaehleHoch(el, ziel, endung = '', form = String) {
@@ -3319,6 +3438,54 @@ class SpickAnsicht extends obsidian.MarkdownRenderChild {
 }
 
 // ── Lernzentrale: Startseite als eigene Ansicht ──
+// Wochen-Rückblick (Wunsch 19.11.): einmal pro Woche beim ersten Öffnen der Lernzentrale, mit Animation
+class RueckblickModal extends obsidian.Modal {
+  constructor(app, w) { super(app); this.w = w; }
+  onOpen() {
+    const { w } = this;
+    this.modalEl.addClass('flz-rb-modal');
+    const el = this.contentEl;
+    el.empty();
+    const montag = w.tage[0].iso, sonntag = w.tage[6].iso;
+    const summe = w.tage.reduce((a, t) => a + t.summe, 0);
+    const vor = w.tage.reduce((a, t) => a + t.vor, 0);
+    const ziel = wochenzielFuer(montag, CFG);
+    const proz = ziel ? Math.round((summe / ziel) * 100) : 0;
+    const bester = w.tage.reduce((b, t) => (t.summe > b.summe ? t : b), w.tage[0]);
+    const rb = el.appendChild(h('div', 'flz-rb'));
+    rb.appendChild(h('div', 'flz-rb-label', `Rückblick · KW ${kw(montag)} · ${kurz(montag)}–${kurz(sonntag)}`));
+    rb.appendChild(h('div', 'flz-rb-titel', 'Deine Woche'));
+    const gross = rb.appendChild(h('div', 'flz-rb-gross'));
+    const zahl = gross.appendChild(h('span', 'flz-rb-zahl'));
+    zaehleHoch(zahl, summe, '', (m) => fmtMin(m));
+    gross.appendChild(h('span', 'flz-rb-unter', `gelernt · Ziel ${fmtMin(ziel)}`));
+    const bar = rb.appendChild(h('div', 'flz-rb-ziel'));
+    const fu = bar.appendChild(h('div', 'flz-rb-ziel-fuell' + (proz >= 100 ? ' is-voll' : '')));
+    const pz = bar.appendChild(h('span', 'flz-rb-ziel-text'));
+    window.setTimeout(() => { fu.style.width = `${Math.min(100, proz)}%`; zaehleHoch(pz, proz, ' %'); }, 300);
+    // Tage als wachsende Säulen, bester Tag golden
+    const max = Math.max(1, ...w.tage.map((t) => t.summe));
+    const tage = rb.appendChild(h('div', 'flz-rb-tage'));
+    w.tage.forEach((t, i) => {
+      const top = t === bester && t.summe > 0;
+      const sp = tage.appendChild(h('div', 'flz-rb-tag' + (top ? ' is-bester' : '')));
+      const saeule = sp.appendChild(h('div', 'flz-rb-saeule'));
+      const fl = saeule.appendChild(h('div', 'flz-rb-saeule-fuell'));
+      fl.style.height = `${(t.summe / max) * 100}%`;
+      fl.style.animationDelay = `${500 + i * 90}ms`;
+      if (top) saeule.appendChild(h('span', 'flz-rb-krone', fmtMin(t.summe)));
+      sp.appendChild(h('span', 'flz-rb-wt', t.kurz));
+    });
+    if (bester.summe) rb.appendChild(h('div', 'flz-rb-satz', `Bester Tag: ${WOCHENTAG_LANG[wochentag(bester.iso)]} mit ${fmtMin(bester.summe)}.`));
+    const diff = summe - vor;
+    if (vor) rb.appendChild(h('div', `flz-rb-satz ${diff >= 0 ? 'is-plus' : 'is-minus'}`, diff >= 0 ? `${fmtMin(diff)} mehr als in der Woche davor.` : `${fmtMin(-diff)} weniger als in der Woche davor.`));
+    const knopf = rb.appendChild(h('button', 'mod-cta flz-rb-knopf', 'Auf in die neue Woche'));
+    knopf.onclick = () => this.close();
+    if (proz >= 100) window.setTimeout(() => schiesseKonfetti(['#f5c542', '#ffd76a', ...Object.values(MODUL_INFO).map((m) => m.farbe)]), 1400);
+  }
+  onClose() { this.contentEl.empty(); }
+}
+
 const VIEW_LZ = 'fle-lernzentrale';
 const MODUL_INFO = {
   fa: { name: 'Financial Accounting', kurz: 'FA', farbe: '#7b5cf0', modul: 'fa' },
@@ -3505,6 +3672,7 @@ class LernzentraleAnsicht extends obsidian.ItemView {
       abschnitt(() => this.baueModule(seite, d));
       abschnitt(() => this.baueWoche(seite, d));
       abschnitt(() => this.baueFakt(seite, d));
+      abschnitt(() => this.pruefeRueckblick(d));
     }
     const einhaengen = () => {
       if (this.renderNr !== nr) return;
@@ -3919,6 +4087,32 @@ class LernzentraleAnsicht extends obsidian.ItemView {
       }
     });
 
+    // Tagesziel-Feier (Wunsch 19.11.): Ziel erreicht = Ring leuchtet dauerhaft, einmal pro Tag Feier mit Konfetti
+    if (!d.leer && d.tagesziel > 0 && gelernt >= d.tagesziel) {
+      ring.classList.add('is-erreicht');
+      const klein = ring.querySelector('.flz-ring-zahl small');
+      if (klein) klein.textContent = 'Ziel erreicht';
+      const marke = ring.querySelector('.flz-ring-flaeche').appendChild(h('span', 'flz-ziel-marke'));
+      marke.setAttribute('aria-hidden', 'true');
+      obsidian.setIcon(marke, 'check');
+      const daten = this.plugin.daten || {};
+      if (this.ringBeob) { this.ringBeob.disconnect(); this.ringBeob = null; }
+      if (daten.tageszielTag !== d.tag && typeof IntersectionObserver === 'function') {
+        const beob = this.ringBeob = new IntersectionObserver((eintraege) => {
+          if (!eintraege.some((e) => e.isIntersecting) || !ring.isConnected) return;
+          beob.disconnect();
+          if (daten.tageszielTag === d.tag) return;
+          daten.tageszielTag = d.tag;
+          this.plugin.saveData(daten);
+          ring.classList.add('is-feiern');
+          // Mit Etappe schiesst schon deren Ziel Konfetti (gleicher Moment), sonst hier
+          if (!d.etappe.length) window.setTimeout(() => schiesseKonfetti(['#f5c542', '#ffd76a', ...Object.values(MODUL_INFO).map((m) => m.farbe)]), 1100);
+        }, { threshold: 0.9 });
+        beob.observe(ring);
+        if (!this.ringAbmelden) { this.ringAbmelden = true; this.register(() => this.ringBeob && this.ringBeob.disconnect()); }
+      }
+    }
+
     const rechts = karte.appendChild(h('div'));
     if (d.leer) {
       rechts.className = 'flz-heute-leer';
@@ -4010,6 +4204,20 @@ class LernzentraleAnsicht extends obsidian.ItemView {
     rang[etappeSchluessel(p)] = richtung > 0 ? Math.max(0, ...werte) + 1 : Math.min(0, ...werte) - 1;
     await this.plugin.saveData(daten);
     await this.neuLaden();
+  }
+
+  // Rückblick auf die letzte ganze Woche, einmal pro Woche (daten.rueckblick = Montag der gezeigten Woche)
+  pruefeRueckblick(d, immer = false) {
+    this.letztesD = d;
+    if (d.leer) return;
+    const montag = plusTage(d.tag, -((wochentag(d.tag) + 6) % 7) - 7);
+    const daten = this.plugin.daten || {};
+    if (!immer && daten.rueckblick === montag) return;
+    const w = wocheVon(d.proTag, plusTage(montag, 6));
+    if (!immer && !w.summeBisHeute) return;
+    daten.rueckblick = montag;
+    this.plugin.saveData(daten);
+    window.setTimeout(() => new RueckblickModal(this.app, w).open(), immer ? 0 : 900);
   }
 
   baueWoche(seite, d) {
@@ -4442,7 +4650,6 @@ class FehlerheftModal extends obsidian.Modal {
     this.plugin.daten.fehler = fehlerNachUebung(this.plugin.daten.fehler, e.id, ok, heute(), this.plugin.pruefungDatum(e.modul || 'fa'));
     this.plugin.speichere();
     const st = (this.plugin.daten.fehler || {})[e.id];
-    if (!ok && st) baueFehlerartWahl(loes, this.plugin, e.id);
     // Urteil unten in der Leiste, daneben der Knopf „Weiter“
     this.urteil.className = `fle-puzzle-urteil ${ok ? 'is-richtig' : 'is-falsch'}`;
     this.urteil.setAttribute('role', 'status');
@@ -4536,11 +4743,61 @@ class FormelModal extends obsidian.Modal {
     const steine = c.appendChild(h('div', 'fle-formel-steine'));
     const knoepfe = formelBausteine(k).map((t) => {
       const b = steine.appendChild(h('button', 'fle-chip fle-formel-stein', t));
-      b.onclick = () => { const i = platz[0] == null ? 0 : platz[1] == null ? 1 : -1; if (i < 0) return; platz[i] = t; male(); };
+      // Antippen = nächstes freies Feld; Ziehen = genau auf ein Feld (Wunsch 19.11.: verspielter)
+      b.onclick = () => { if (b.dataset.gezogen) { delete b.dataset.gezogen; return; } const i = platz[0] == null ? 0 : platz[1] == null ? 1 : -1; if (i < 0) return; setze(i, t, b); };
+      b.addEventListener('pointerdown', (ev) => ziehe(ev, b, t));
       return b;
     });
+    const ruhig = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // Baustein fliegt sichtbar vom Ausgangsort ins Feld und rastet mit kleinem Ruck ein
+    const setze = (i, t, quelle, vonRect) => {
+      if (this.geprueft) return;
+      const von = vonRect || (quelle && quelle.getBoundingClientRect());
+      platz[i] = t;
+      male();
+      const ziel = slots[i];
+      ziel.classList.remove('is-rast'); void ziel.offsetWidth; ziel.classList.add('is-rast');
+      if (ruhig || !von) return;
+      const nach = ziel.getBoundingClientRect();
+      const flug = document.body.appendChild(h('div', 'fle-chip fle-formel-stein fle-formel-flug', t));
+      flug.style.left = `${von.left}px`; flug.style.top = `${von.top}px`;
+      ziel.style.visibility = 'hidden';
+      const dx = nach.left + nach.width / 2 - (von.left + von.width / 2), dy = nach.top + nach.height / 2 - (von.top + von.height / 2);
+      const a = flug.animate([{ transform: 'translate(0,0) scale(1)' }, { transform: `translate(${dx * 0.5}px, ${dy * 0.5 - 30}px) scale(1.12)`, offset: 0.5 }, { transform: `translate(${dx}px, ${dy}px) scale(1)` }], { duration: 320, easing: 'cubic-bezier(.4,0,.2,1)' });
+      a.onfinish = () => { flug.remove(); ziel.style.visibility = ''; ziel.classList.remove('is-rast'); void ziel.offsetWidth; ziel.classList.add('is-rast'); };
+    };
+    const ziehe = (ev, b, t) => {
+      if (this.geprueft || b.classList.contains('is-weg') || ev.button !== 0) return;
+      const start = { x: ev.clientX, y: ev.clientY };
+      const r = b.getBoundingClientRect();
+      let geist = null, ueber = -1;
+      const bewege = (e) => {
+        const dx = e.clientX - start.x, dy = e.clientY - start.y;
+        if (!geist && Math.hypot(dx, dy) < 6) return;
+        if (!geist) {
+          geist = document.body.appendChild(h('div', 'fle-chip fle-formel-stein fle-formel-flug is-gezogen', t));
+          b.classList.add('is-haelt');
+        }
+        geist.style.left = `${r.left + dx}px`; geist.style.top = `${r.top + dy}px`;
+        ueber = slots.findIndex((sl) => { const q = sl.getBoundingClientRect(); return e.clientX >= q.left - 10 && e.clientX <= q.right + 10 && e.clientY >= q.top - 10 && e.clientY <= q.bottom + 10; });
+        slots.forEach((sl, i) => sl.classList.toggle('is-ziel', i === ueber));
+      };
+      const los = () => {
+        window.removeEventListener('pointermove', bewege);
+        window.removeEventListener('pointerup', los);
+        slots.forEach((sl) => sl.classList.remove('is-ziel'));
+        b.classList.remove('is-haelt');
+        if (!geist) return;
+        b.dataset.gezogen = '1';
+        const g = geist.getBoundingClientRect();
+        geist.remove();
+        if (ueber >= 0) setze(ueber, t, null, g);
+      };
+      window.addEventListener('pointermove', bewege);
+      window.addEventListener('pointerup', los);
+    };
     const fuss = c.appendChild(h('div', 'fle-puzzle-fuss'));
-    const hinweis = fuss.appendChild(h('span', 'fle-leise', 'Tippe einen Baustein, er landet im nächsten freien Feld. Ein Feld antippen leert es.'));
+    const hinweis = fuss.appendChild(h('span', 'fle-leise', 'Tippe oder zieh einen Baustein ins Feld. Ein Feld antippen leert es.'));
     const pruefen = fuss.appendChild(h('button', 'fle-btn mod-cta', 'Prüfen'));
     this.geprueft = false;
     const male = () => {
@@ -4561,6 +4818,7 @@ class FormelModal extends obsidian.Modal {
         if (!ok) this.liste.push(k);   // gleich nochmals am Ende dieser Runde
       }
       formel.classList.add(ok ? 'is-richtig' : 'is-falsch');
+      if (ok) window.setTimeout(() => funken(formel, 22), 250);   // Formel klappt zu, dann Funken
       // Jedes Feld einzeln: richtig gesetzt grün, falsch rot (beim Produkt zählt auch die vertauschte Reihenfolge)
       const soll = ok && k.op === '×' && platz[0] === k.b ? [k.b, k.a] : [k.a, k.b];
       slots.forEach((sl, i) => sl.classList.add(platz[i] === soll[i] ? 'is-ok' : 'is-nein'));
@@ -4661,6 +4919,10 @@ class FaLerneinheit extends obsidian.Plugin {
     this.addSettingTab(new Einstellungen(this.app, this));
     this.registerView(VIEW_LZ, (leaf) => new LernzentraleAnsicht(leaf, this));
     this.addCommand({ id: 'lernzentrale-oeffnen', name: 'Lernzentrale öffnen', callback: () => this.oeffneLernzentrale(true) });
+    this.addCommand({ id: 'wochen-rueckblick', name: 'Wochen-Rückblick zeigen', callback: () => {
+      const v = this.app.workspace.getLeavesOfType(VIEW_LZ).map((l) => l.view).find((x) => x.letztesD);
+      if (v) v.pruefeRueckblick(v.letztesD, true); else new obsidian.Notice('Öffne zuerst die Lernzentrale.');
+    } });
     this.addRibbonIcon('layout-dashboard', 'Lernzentrale', () => this.oeffneLernzentrale(true));
     // Nur beim Start die Lernzentrale zeigen (abschaltbar); neue Tabs bleiben leer (Wunsch 10.11.)
     const schonOffen = this.app.workspace.layoutReady;
