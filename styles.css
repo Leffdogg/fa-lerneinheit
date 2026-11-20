@@ -1546,12 +1546,7 @@
 /* 4 · Modulkarten kippen zur Maus */
 .flz button.flz-mk.is-kipp { transform: perspective(700px) rotateX(var(--rx, 0)) rotateY(var(--ry, 0)) translateY(-4px); transition: transform 80ms linear, box-shadow .25s; }
 
-/* 5 · Die drei grossen Zahlen: Kacheln ploppen nacheinander auf, Zahl rastet am Ende ein */
-.fle-plan-kachel { animation: flz-hochfedern-klein 520ms cubic-bezier(0.34, 1.4, 0.5, 1) backwards; }
-.fle-plan-kachel:nth-child(2) { animation-delay: 90ms; } .fle-plan-kachel:nth-child(3) { animation-delay: 180ms; }
-@keyframes flz-hochfedern-klein { from { opacity: 0; transform: translateY(16px) scale(.94); } }
-.fle-plan-zahl { display: inline-block; transform-origin: left bottom; animation: flz-einrasten 420ms cubic-bezier(0.34, 1.6, 0.5, 1) 950ms; }
-@keyframes flz-einrasten { 40% { transform: scale(1.1); } 100% { transform: none; } }
+/* 5 · Die drei grossen Zahlen: Aufspringen wieder raus (zu viel), nur Hochzählen wie vorher */
 
 /* 6 · Die nächsten 7 Tage kommen von links herein */
 .flz-sieben > .flz-sieben-gitter > * { animation: flz-von-links 460ms var(--flz-aus) backwards; }
