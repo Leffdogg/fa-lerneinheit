@@ -218,11 +218,23 @@ function ankerFaellig(faellig, pruefungISO, heuteISO) {
   if (heuteISO >= anker || faellig <= anker) return faellig;
   return anker > heuteISO ? anker : plusTage(heuteISO, 1);
 }
-function fehlerNachUebung(fehler, id, richtig, heuteISO, pruefungISO = null) {
+// Anpassende Abstände (Wunsch 20.11., Prinzip 2): Jede Karte hat einen eigenen Faktor. Schnell und richtig → längere
+// Pausen, langsam oder falsch → kürzere. Die Grundabstände bleiben das Gerüst, der Faktor dehnt oder staucht sie.
+const FAKTOR_MIN = 0.5, FAKTOR_MAX = 2.5;
+function neuerFaktor(faktor, richtig, tempo = null) {
+  let f = typeof faktor === 'number' ? faktor : 1;
+  if (!richtig) f *= 0.8;
+  else if (tempo === 'gut') f *= 1.3;
+  else if (tempo === 'langsam') f *= 0.75;
+  return Math.round(Math.min(FAKTOR_MAX, Math.max(FAKTOR_MIN, f)) * 100) / 100;
+}
+const abstandTage = (basis, faktor) => Math.max(1, Math.round(basis * (typeof faktor === 'number' ? faktor : 1)));
+function fehlerNachUebung(fehler, id, richtig, heuteISO, pruefungISO = null, tempo = null) {
   const alt = (fehler || {})[id];
   if (!alt) return fehler;
   const neu = { ...fehler };
-  if (!richtig) { neu[id] = { ...alt, stufe: 0, faellig: ankerFaellig(plusTage(heuteISO, 1), pruefungISO, heuteISO), zuletzt: heuteISO }; return neu; }
+  const faktor = neuerFaktor(alt.faktor, richtig, tempo);
+  if (!richtig) { neu[id] = { ...alt, faktor, stufe: 0, faellig: ankerFaellig(plusTage(heuteISO, 1), pruefungISO, heuteISO), zuletzt: heuteISO }; return neu; }
   const stufe = (alt.stufe || 0) + 1;
   // Dreimal richtig: sitzt. Liegt die Prüfung noch vor dem Anker, kommt der Fall dort ein letztes Mal.
   if (stufe >= FEHLER_ABSTAND.length) {
@@ -230,7 +242,7 @@ function fehlerNachUebung(fehler, id, richtig, heuteISO, pruefungISO = null) {
     if (anker && heuteISO < anker && !alt.schluss) { neu[id] = { ...alt, stufe, schluss: true, faellig: anker, zuletzt: heuteISO }; return neu; }
     delete neu[id]; return neu;
   }
-  neu[id] = { ...alt, stufe, faellig: ankerFaellig(plusTage(heuteISO, FEHLER_ABSTAND[stufe]), pruefungISO, heuteISO), zuletzt: heuteISO };
+  neu[id] = { ...alt, faktor, stufe, faellig: ankerFaellig(plusTage(heuteISO, abstandTage(FEHLER_ABSTAND[stufe], faktor)), pruefungISO, heuteISO), zuletzt: heuteISO };
   return neu;
 }
 // Reihenfolge: zuerst Denkfehler (sicher, aber falsch), dann Begriffsfehler, dann nach Fälligkeit
@@ -329,11 +341,12 @@ function formelnHeute(stand, heuteISO, erlaubt = null, maxNeu = 6) {
   const neu = KENNZAHLEN.filter((k) => !s[k.id] && (!erlaubt || erlaubt.includes(k.gruppe))).slice(0, Math.max(0, maxNeu - neuHeute));
   return [...faellig, ...neu];
 }
-function formelNachUebung(stand, id, richtig, heuteISO, pruefungISO = null) {
+function formelNachUebung(stand, id, richtig, heuteISO, pruefungISO = null, tempo = null) {
   const alt = (stand || {})[id] || { stufe: -1 };
   const stufe = richtig ? Math.min(alt.stufe + 1, FORMEL_ABSTAND.length - 1) : 0;
-  const tage = richtig ? FORMEL_ABSTAND[stufe] : 1;
-  return { ...stand, [id]: { stufe, faellig: ankerFaellig(plusTage(heuteISO, tage), pruefungISO, heuteISO), zuletzt: heuteISO, seit: (stand || {})[id] ? ((stand[id].seit) || null) : heuteISO } };
+  const faktor = neuerFaktor(alt.faktor, richtig, tempo);
+  const tage = richtig ? abstandTage(FORMEL_ABSTAND[stufe], faktor) : 1;
+  return { ...stand, [id]: { stufe, faktor, faellig: ankerFaellig(plusTage(heuteISO, tage), pruefungISO, heuteISO), zuletzt: heuteISO, seit: (stand || {})[id] ? ((stand[id].seit) || null) : heuteISO } };
 }
 // Unterrichtet = Fahrplan-Thema mit `unterricht` ≤ heute, dessen Name mit der Gruppe beginnt
 function formelGruppen(plan, heuteISO) {
@@ -3844,6 +3857,7 @@ class LernzentraleAnsicht extends obsidian.ItemView {
       }
       if (!ok) { rahmen.classList.remove('is-abgehakt'); new obsidian.Notice('Die Karte hat sich im Board geändert. Bitte dort abhaken.'); return; }
       await wartet;
+      this.fliegeInsErledigt(rahmen, k);
       zuklappen();
     };
     // Überfällig: mit einem Klick auf heute oder morgen schieben
@@ -3921,6 +3935,32 @@ class LernzentraleAnsicht extends obsidian.ItemView {
     for (const r of this.contentEl.querySelectorAll('.flz-bk-rahmen[data-uhr]')) r.classList.toggle('is-uhr', r.dataset.uhr === an);
   }
 
+  // Abgehakte Karte: eine kleine Pille gleitet von der Karte zum Erledigt-Streifen (Wunsch 20.11.)
+  fliegeInsErledigt(rahmen, k) {
+    this.frischErledigt = k.text;
+    const ruhig = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const ziel = this.contentEl.querySelector('.flz-erledigt .flz-erl-liste') || this.contentEl.querySelector('.flz-erledigt');
+    if (ruhig || !ziel || !rahmen.isConnected || !document.body.animate) return;
+    const von = rahmen.getBoundingClientRect();
+    const nach = ziel.getBoundingClientRect();
+    const pille = document.body.appendChild(h('div', 'flz-flug'));
+    const m = k.modul && MODUL_INFO[k.modul];
+    pille.innerHTML = `${m ? `<i style="background:${m.farbe}"></i>` : '<i class="is-leer"></i>'}<span>${escHtml(k.text)}</span>`;
+    pille.style.left = `${von.left + 12}px`;
+    pille.style.top = `${von.top + von.height / 2 - 13}px`;
+    const dx = nach.left - von.left - 12;
+    const dy = nach.top - (von.top + von.height / 2 - 13);
+    const a = pille.animate([
+      { transform: 'translate(0,0) scale(1)', opacity: 0 },
+      { transform: `translate(${dx * 0.15}px, ${dy * 0.15 - 18}px) scale(1.04)`, opacity: 1, offset: 0.2 },
+      { transform: `translate(${dx}px, ${dy}px) scale(.92)`, opacity: 1, offset: 0.9 },
+      { transform: `translate(${dx}px, ${dy}px) scale(.92)`, opacity: 0 },
+    ], { duration: 720, easing: 'cubic-bezier(0.45, 0, 0.2, 1)', fill: 'forwards' });
+    const weg = () => pille.remove();
+    a.onfinish = weg;
+    window.setTimeout(weg, 1200);
+  }
+
   // Erledigt-Streifen unter der Tafel: zuletzt abgehakte Aufgaben, die neuesten zuerst
   baueErledigt(sec, d) {
     const liste = erledigtListe(d.board.erledigt || [], (l) => this.fm(l));
@@ -3934,6 +3974,7 @@ class LernzentraleAnsicht extends obsidian.ItemView {
       const li = ul.appendChild(h('li', i >= MAX ? 'is-mehr' : ''));
       const m = k.modul && MODUL_INFO[k.modul];
       li.innerHTML = `${m ? `<i style="background:${m.farbe}" title="${m.kurz}"></i>` : '<i class="is-leer"></i>'}<span>${escHtml(k.text)}</span>`;
+      if (this.frischErledigt && k.text === this.frischErledigt) { li.classList.add('is-frisch'); this.frischErledigt = null; }
       if (k.link) {
         li.classList.add('is-link');
         li.tabIndex = 0;
@@ -4638,6 +4679,7 @@ class FehlerheftModal extends obsidian.Modal {
   }
 
   async zeige() {
+    this.startMs = Date.now();
     const c = this.contentEl; c.empty();
     c.removeClass('fle-wechsel'); void c.offsetWidth; c.addClass('fle-wechsel');
     c.addClass('fle', 'fle-puzzle');
@@ -4799,7 +4841,8 @@ class FehlerheftModal extends obsidian.Modal {
     // Erstversuch-Quote: nur der erste Versuch pro Tag zählt (verzögerter Abruf, Prinzip 9)
     if (!this.geloggt) this.geloggt = new Set();
     if (!this.geloggt.has(e.id)) { this.geloggt.add(e.id); this.plugin.daten.fehlerLog = [...(this.plugin.daten.fehlerLog || []), { datum: heute(), ok }].slice(-200); }
-    this.plugin.daten.fehler = fehlerNachUebung(this.plugin.daten.fehler, e.id, ok, heute(), this.plugin.pruefungDatum(e.modul || 'fa'));
+    const tempo = this.startMs ? tempoStufe((Date.now() - this.startMs) / 1000, tempoSoll(fall)) : null;
+    this.plugin.daten.fehler = fehlerNachUebung(this.plugin.daten.fehler, e.id, ok, heute(), this.plugin.pruefungDatum(e.modul || 'fa'), tempo);
     this.plugin.speichere();
     const st = (this.plugin.daten.fehler || {})[e.id];
     // Urteil unten in der Leiste, daneben der Knopf „Weiter“
@@ -4858,6 +4901,7 @@ class FormelModal extends obsidian.Modal {
   }
 
   zeige() {
+    this.startMs = Date.now();
     const c = this.contentEl; c.empty();
     c.removeClass('fle-wechsel'); void c.offsetWidth; c.addClass('fle-wechsel');
     c.addClass('fle', 'fle-puzzle');
@@ -4966,7 +5010,9 @@ class FormelModal extends obsidian.Modal {
       if (erstmals) {
         this.gesehen.add(k.id);
         if (ok) this.richtig += 1;
-        this.plugin.daten.formeln = formelNachUebung(this.plugin.daten.formeln, k.id, ok, heute(), this.plugin.pruefungDatum('fa'));
+        // Formel-Puzzle: unter 20 s gilt als sicher abgerufen, über 45 s als langsam
+        const sek = (Date.now() - (this.startMs || Date.now())) / 1000;
+        this.plugin.daten.formeln = formelNachUebung(this.plugin.daten.formeln, k.id, ok, heute(), this.plugin.pruefungDatum('fa'), sek <= 20 ? 'gut' : sek > 45 ? 'langsam' : 'knapp');
         this.plugin.speichere();
         if (!ok) this.liste.push(k);   // gleich nochmals am Ende dieser Runde
       }
@@ -5531,7 +5577,7 @@ module.exports = FaLerneinheit;
 module.exports.logik = { bezuege, zeitSchritt, modulAusPfad, zeitDazu, mischeZeit, wochenzielFuer, auswahlWahl, bewerteKprim, bewerteAuswahl, kprimWahl, videosFuer, ERKLAERVIDEOS, folgtHinweis, kw,unterlagenGruppen, wiederholKarte, quizListe, themaMitQuiz, NEUE_MODULE, tafelSpalte, hakeAb, naechsteSiebenMitRest, UNTERLAGEN, PRUEFUNG, pruefungsSatz, modulDateien, letzteRunde, naechsteSieben, erledigtListe, fakten, fahrplanKennzahlen, hochrechnung, leseBoard, etappeHeute, lernMinuten, wocheVon, serie, tagesziel, MODUL_SPALTEN, pruefTempo, bewerteBuchung, prozentFuerMit, uebernahmeAblauf, istVorschlagSeite, pdfSeiten, pruefeSpick, spickAenderungen, uebernimmVorschlag, spickHtml, SPICK_MAX_ZEICHEN, noteMit, naechsteTodos, matheZeilen, cfgFuer, MODULE, leseZahl, leseZahlen, pruefeZahl, pruefeMenge, pruefeEinheit, KONTENPLAN, EINSCHAETZUNGEN, istKonto,
   buchungsDiagnose, kontoArt, buchungsWirkung, sicherFalsch,
   WIRKUNGEN, wirkungSoll, tempoSoll, tempoStufe, FEHLER_ABSTAND, fehlerId, fehlerEintragen, fehlerNachUebung, faelligeFehler,
-  ANKER_TAGE, ankerFaellig, FEHLERARTEN, kalibrierung, erstversuchQuote,
+  ANKER_TAGE, ankerFaellig, neuerFaktor, abstandTage, FEHLERARTEN, kalibrierung, erstversuchQuote,
   KENNZAHLEN, pruefeFormel, formelBausteine, formelnHeute, formelNachUebung, formelGruppen,
   neuerZustand, starte, stoppeLaufenden, istWackelig, MAX_LAUF_S, stoppeNachAbsturz, nachPause, fallSekunden, matheEinheitZeile, uhrSek, uhrPause, setzeZeit,
   hakeKarteAb, fortschrittZeile, setzeFortschritt, pruefungsErgebnis, restSekunden, freischaltung, normKonto, leseBetrag, pruefeBuchung, trefferQuote,
