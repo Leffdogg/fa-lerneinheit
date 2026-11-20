@@ -2030,6 +2030,13 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
     const wechsel = vorher != null && vorher !== aktiv ? (aktiv > vorher ? ' is-wechsel is-vor' : ' is-wechsel is-zurueck') : '';
     const haupt = rahmen.appendChild(h('div', 'fle-haupt' + wechsel));
     this.letzterSchritt = aktiv;
+    // Neuer Schritt beginnt immer oben (20.11.): war der alte Schritt länger, stand man sonst mitten im neuen
+    if (wechsel) window.setTimeout(() => {
+      if (!rahmen.isConnected) return;
+      const sc = rahmen.closest('.markdown-preview-view, .cm-scroller, .fle-modal, .modal-content');
+      const oben = sc ? sc.getBoundingClientRect().top : 0;
+      if (rahmen.getBoundingClientRect().top < oben) rahmen.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }, 0);
 
     // Timer (Probeprüfung: Countdown ohne Pause)
     if (this.pruefung) {
@@ -2046,7 +2053,9 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
 
     // Schrittliste
     this.zeitEls = [];
-    const liste = spalte.appendChild(h('ol', 'fle-liste'));
+    // Nur beim ersten Aufbau der Einheit kommen die Schritte nacheinander herein (baue() zeichnet bei jedem Klick neu)
+    const liste = spalte.appendChild(h('ol', 'fle-liste' + (this.listeGezeigt ? '' : ' is-erstmals')));
+    this.listeGezeigt = true;
     this.schritte.forEach((s, i) => {
       if (i === this.schritte.length - 1) window.setTimeout(() => { this.fertigBekannt = true; }, 0);
       const fertig = (z.fertig || []).includes(i) || (s.art === 'einschaetzen' && z.einschaetzung) || (s.art === 'abgabe' && z.abgegeben);
@@ -2109,12 +2118,14 @@ class EinheitAnsicht extends obsidian.MarkdownRenderChild {
     // Navigation
     const nav = karte.appendChild(h('div', 'fle-nav'));
     if (aktiv > 0) {
-      const zur = nav.appendChild(h('button', 'fle-btn', '← Zurück'));
+      const zur = nav.appendChild(h('button', 'fle-btn fle-btn-zurueck'));
+      zur.innerHTML = '<span class="fle-pfeil" aria-hidden="true">←</span> Zurück';
       zur.onclick = () => this.geheZu(aktiv - 1);
     }
     nav.appendChild(h('span', 'fle-luecke'));
     if (aktiv < this.schritte.length - 1) {
-      const w = nav.appendChild(h('button', 'fle-btn mod-cta', 'Weiter →'));
+      const w = nav.appendChild(h('button', 'fle-btn mod-cta fle-btn-weiter'));
+      w.innerHTML = 'Weiter <span class="fle-pfeil" aria-hidden="true">→</span>';
       w.onclick = () => {
         this.autoStart();
         const fertig = new Set(this.z.fertig || []); fertig.add(aktiv);
@@ -3677,6 +3688,7 @@ class LernzentraleAnsicht extends obsidian.ItemView {
     const einhaengen = () => {
       if (this.renderNr !== nr) return;
       this.contentEl.empty();
+      if (this.richtung) { root.classList.add(this.richtung); this.richtung = null; }
       this.contentEl.appendChild(root);
       if (nachOben) this.contentEl.scrollTop = 0;
       this.nachRender(root);
@@ -3692,6 +3704,34 @@ class LernzentraleAnsicht extends obsidian.ItemView {
     root.querySelectorAll('.flz-rein').forEach((el) => io.observe(el));
     if (!this.ioAbmelden) { this.ioAbmelden = true; this.register(() => this.io && this.io.disconnect()); }
     for (const el of root.querySelectorAll('[data-zaehl]')) zaehleHoch(el, Number(el.dataset.zaehl), el.dataset.endung || '');
+    this.setzeNavZeiger(root);
+  }
+
+  // Reiter in der Leiste: eine Fläche, die vom alten zum neuen Eintrag gleitet
+  setzeNavZeiger(root) {
+    const nav = root.querySelector('.flz-nav');
+    const an = nav && nav.querySelector('button.flz-nav-a.is-an');
+    const von = this.navVon;
+    this.navVon = null;
+    if (!an) return;
+    const z = nav.insertBefore(h('span', 'flz-nav-zeiger'), nav.firstChild);
+    z.setAttribute('aria-hidden', 'true');
+    nav.classList.add('has-zeiger');
+    const setze = () => Object.assign(z.style, { left: `${an.offsetLeft}px`, top: `${an.offsetTop}px`, width: `${an.offsetWidth}px`, height: `${an.offsetHeight}px` });
+    setze();
+    const ruhig = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (von && !ruhig && z.animate) {
+      const dx = von.x - an.offsetLeft, dy = von.y - an.offsetTop;
+      z.animate([
+        { transform: `translate(${dx}px, ${dy}px)`, width: `${von.w}px` },
+        { transform: 'none', width: `${an.offsetWidth}px` },
+      ], { duration: 420, easing: 'cubic-bezier(0.34, 1.3, 0.5, 1)' });
+    }
+    // Breite ändert sich, wenn die Schrift nachlädt oder das Fenster schmaler wird
+    if (this.navRo) this.navRo.disconnect();
+    this.navRo = new ResizeObserver(setze);
+    this.navRo.observe(nav);
+    if (!this.navRoAbmelden) { this.navRoAbmelden = true; this.register(() => this.navRo && this.navRo.disconnect()); }
   }
 
   baueNav(seite) {
@@ -3720,7 +3760,16 @@ class LernzentraleAnsicht extends obsidian.ItemView {
       : [['flz-m-sieben', 'Nächste 7 Tage'], ['flz-m-themen', 'Themen']];
     for (const [id, t] of ziele) {
       const a = sprung.appendChild(h('button', 'flz-nav-a', t));
-      a.onclick = () => { const z = this.contentEl.querySelector('#' + id); if (z) z.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+      a.onclick = () => {
+        const z = this.contentEl.querySelector('#' + id);
+        if (!z) return;
+        z.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // Ziel leuchtet kurz auf, sobald es angekommen ist
+        const titel = z.querySelector('h2, .flz-h') || z;
+        titel.classList.remove('is-angesprungen');
+        window.setTimeout(() => { void titel.offsetWidth; titel.classList.add('is-angesprungen'); }, 380);
+        window.setTimeout(() => titel.classList.remove('is-angesprungen'), 1800);
+      };
     }
     this.contentEl.onscroll = () => nav.classList.toggle('is-unten', this.contentEl.scrollTop > 40);
   }
@@ -3729,6 +3778,14 @@ class LernzentraleAnsicht extends obsidian.ItemView {
   // Zwischen Startseite und Modulseiten wechseln, ohne eine Datei zu öffnen
   zeigeSeite(seite, zurueck = false) {
     if (!zurueck && seite !== this.seite) this.verlauf.push(this.seite);
+    // Gefühl wie eine App: Inhalt wischt in Richtung der Leiste, der Reiter gleitet mit
+    const reihe = ['start', ...MODUL_KEYS];
+    if (seite !== this.seite) {
+      this.richtung = reihe.indexOf(seite) > reihe.indexOf(this.seite) ? 'is-vor' : 'is-zurueck';
+      const nav = this.contentEl.querySelector('.flz-nav');
+      const an = nav && nav.querySelector('button.flz-nav-a.is-an');
+      if (an) this.navVon = { x: an.offsetLeft, y: an.offsetTop, w: an.offsetWidth, h: an.offsetHeight };
+    }
     this.seite = seite;
     this.render(true);
     this.app.workspace.requestSaveLayout();
@@ -3762,16 +3819,32 @@ class LernzentraleAnsicht extends obsidian.ItemView {
       const datei = this.app.vault.getAbstractFileByPath(CFG.board);
       if (!(datei instanceof obsidian.TFile) || !k.zeile) return;
       let ok = false;
-      rahmen.classList.add('is-weg');
+      // Erst der Moment: Kreis füllt sich, Haken zeichnet sich, Funken; dann klappt die Karte zu
+      rahmen.classList.add('is-abgehakt');
+      funken(rahmen, 12);
+      const zuklappen = () => {
+        const ruhig = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (ruhig || !rahmen.animate || !rahmen.isConnected) { rahmen.classList.add('is-weg'); return; }
+        const hoehe = rahmen.offsetHeight;
+        rahmen.style.overflow = 'hidden';
+        rahmen.animate([
+          { height: `${hoehe}px`, opacity: 1, transform: 'none' },
+          { height: `${hoehe}px`, opacity: 0, transform: 'translateX(24px) scale(.97)', offset: 0.55 },
+          { height: '0px', opacity: 0, transform: 'translateX(24px) scale(.97)', marginTop: '0px', marginBottom: '0px' },
+        ], { duration: 520, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'forwards' });
+      };
+      const wartet = new Promise((r) => window.setTimeout(r, 480));
       try {
         await this.app.vault.process(datei, (alt) => { const neu = hakeAb(alt, k.zeile, heute(), k.spalte); ok = neu !== null; return neu === null ? alt : neu; });
       } catch (err) {
         console.error('fa-lerneinheit Abhaken', err);
-        rahmen.classList.remove('is-weg');
+        rahmen.classList.remove('is-abgehakt');
         new obsidian.Notice(`Abhaken ging nicht: ${err.message}`);
         return;
       }
-      if (!ok) { rahmen.classList.remove('is-weg'); new obsidian.Notice('Die Karte hat sich im Board geändert. Bitte dort abhaken.'); }
+      if (!ok) { rahmen.classList.remove('is-abgehakt'); new obsidian.Notice('Die Karte hat sich im Board geändert. Bitte dort abhaken.'); return; }
+      await wartet;
+      zuklappen();
     };
     // Überfällig: mit einem Klick auf heute oder morgen schieben
     if (k.ueberfaellig && k.zeile) {
@@ -4049,7 +4122,16 @@ class LernzentraleAnsicht extends obsidian.ItemView {
     const gruss = std < 11 ? 'Guten Morgen' : std < 18 ? 'Guten Tag' : 'Guten Abend';
     const datum = new Date(d.tag + 'T12:00:00').toLocaleDateString('de-CH', { weekday: 'long', day: 'numeric', month: 'long' });
     const links = k.appendChild(h('div'));
-    links.appendChild(h('div', 'flz-gruss', d.leer ? 'Willkommen in der Lernzentrale' : `${gruss}${CFG.name ? ', ' + CFG.name : ''}`));
+    // Begrüssung gleitet Wort für Wort herein
+    const grussEl = links.appendChild(h('div', 'flz-gruss'));
+    const grussText = d.leer ? 'Willkommen in der Lernzentrale' : `${gruss}${CFG.name ? ', ' + CFG.name : ''}`;
+    grussEl.setAttribute('aria-label', grussText);
+    grussText.split(' ').forEach((w, i, a) => {
+      const s = grussEl.appendChild(h('span', 'flz-wort', w));
+      s.setAttribute('aria-hidden', 'true');
+      s.style.setProperty('--i', i);
+      if (i < a.length - 1) grussEl.appendChild(document.createTextNode(' '));
+    });
     const unter = links.appendChild(h('div', 'flz-gruss-unter'));
     unter.innerHTML = `${escHtml(datum)} · ${d.naechste ? `<b>${escHtml(d.naechste.kurz)} in ${d.naechste.tage} Tagen</b>` : 'noch keine Prüfung eingetragen'}`;
     const chip = k.appendChild(h('span', 'flz-chip' + (d.serie.tage ? '' : ' is-aus')));
@@ -4136,6 +4218,7 @@ class LernzentraleAnsicht extends obsidian.ItemView {
     d.etappe.forEach((p, i) => {
       const m = p.modul ? MODUL_INFO[p.modul] : null;
       const s = schritte.appendChild(h('div', `flz-schritt is-${p.status}` + kante(i)));
+      s.style.setProperty('--i', i);
       s.tabIndex = 0;
       // Kein aria-label: Obsidian zeigt dafür einen eigenen Tooltip, der die Hover-Karte verdeckte (17.11.).
       // Für Screenreader steht der Titel ohnehin in der Karte; die Nummer als versteckter Text.
@@ -4349,6 +4432,14 @@ class LernzentraleAnsicht extends obsidian.ItemView {
         <span class="flz-mk-mitte"><svg class="flz-mk-ring" viewBox="0 0 50 50" aria-hidden="true"><circle cx="25" cy="25" r="${R}" class="flz-mk-spur"/>${m.k ? `<circle class="flz-mk-ist" cx="25" cy="25" r="${R}" stroke-dasharray="${U}" stroke-dashoffset="${U}" data-ziel="${U * (1 - m.k.ist / 100)}" transform="rotate(-90 25 25)"/>` : ''}${m.k && m.k.soll ? `<line class="flz-mk-soll" x1="${25 + (R - 6) * Math.cos(a)}" y1="${25 + (R - 6) * Math.sin(a)}" x2="${25 + (R + 6) * Math.cos(a)}" y2="${25 + (R + 6) * Math.sin(a)}"/>` : ''}</svg>
         <span><span class="flz-mk-wert">${m.k ? m.k.ist + ' %' : '–'}</span><span class="flz-mk-soll-txt">${m.k ? `Soll ${m.k.stoff} %` : 'kein Fahrplan'}</span></span></span>
         <span class="flz-stand">${icon(STAND_ICON[druck])}${m.k && m.k.aufholen ? 'aufholen' : STAND_WORT[druck]}</span>`;
+      // Karte kippt leicht in Richtung Maus
+      b.addEventListener('pointermove', (e) => {
+        const r = b.getBoundingClientRect();
+        b.style.setProperty('--ry', `${((e.clientX - r.left) / r.width - 0.5) * 12}deg`);
+        b.style.setProperty('--rx', `${(0.5 - (e.clientY - r.top) / r.height) * 12}deg`);
+        b.classList.add('is-kipp');
+      });
+      b.addEventListener('pointerleave', () => b.classList.remove('is-kipp'));
       const wahl = () => { this.modulWahl = m.key; reihe.querySelectorAll('.flz-mk').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); zeigePanel(m); };
       b.addEventListener('mouseenter', wahl); b.addEventListener('focus', wahl); b.addEventListener('click', wahl);
     });
@@ -4367,16 +4458,30 @@ class LernzentraleAnsicht extends obsidian.ItemView {
       <div class="flz-wochenwahl flz-monatwahl"><button class="flz-btn is-rund" aria-label="Voriger Monat">‹</button><span></span><button class="flz-btn is-rund" aria-label="Nächster Monat">›</button></div></div></div><div class="flz-plan-inhalt"></div>`;
     const inhalt = sec.querySelector('.flz-plan-inhalt');
     const mw = sec.querySelector('.flz-monatwahl');
-    const zeige = () => {
+    // Umschalter mit gleitender Fläche (wie die Leiste oben)
+    const seg = sec.querySelector('.flz-seg');
+    const pille = seg.insertBefore(h('span', 'flz-seg-pille'), seg.firstChild);
+    pille.setAttribute('aria-hidden', 'true');
+    seg.classList.add('has-pille');
+    const setzePille = () => {
+      const an = seg.querySelector('[aria-selected="true"]');
+      if (an) Object.assign(pille.style, { transform: `translateX(${an.offsetLeft - 3}px)`, width: `${an.offsetWidth}px` });
+    };
+    // Erst nach der ersten Messung mit Übergang, sonst gleitet die Fläche beim Laden von links herein
+    new ResizeObserver(() => { setzePille(); window.setTimeout(() => seg.classList.add('is-bereit'), 50); }).observe(seg);
+    const anim = (cls) => { inhalt.classList.remove('is-neu', 'is-vor', 'is-zurueck'); void inhalt.offsetWidth; inhalt.classList.add(cls); };
+    const zeige = (art = null) => {
       sec.querySelectorAll('[data-a]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.a === this.ansichtPlan)));
+      setzePille();
       mw.style.visibility = this.ansichtPlan === 'kal' ? 'visible' : 'hidden';
       inhalt.empty();
       if (this.ansichtPlan === 'tafel') this.baueTafel(inhalt, d); else this.baueKalender(inhalt, d, mw);
+      if (art) anim(art);
     };
-    sec.querySelectorAll('[data-a]').forEach((b) => { b.onclick = () => { this.ansichtPlan = b.dataset.a; zeige(); }; });
+    sec.querySelectorAll('[data-a]').forEach((b) => { b.onclick = () => { if (this.ansichtPlan === b.dataset.a) return; this.ansichtPlan = b.dataset.a; zeige('is-neu'); }; });
     const [zur, vor] = mw.querySelectorAll('button');
-    zur.onclick = () => { this.monatVersatz--; zeige(); };
-    vor.onclick = () => { this.monatVersatz++; zeige(); };
+    zur.onclick = () => { this.monatVersatz--; zeige('is-zurueck'); };
+    vor.onclick = () => { this.monatVersatz++; zeige('is-vor'); };
     zeige();
     this.baueErledigt(sec, d);
   }
@@ -4399,6 +4504,7 @@ class LernzentraleAnsicht extends obsidian.ItemView {
         const setze = () => {
           const auf = this.offeneSpalten.has(key);
           box.hidden = !auf;
+          box.classList.toggle('is-auf', auf);
           knopf.textContent = auf ? 'weniger anzeigen' : `${rest.length} weitere anzeigen`;
           knopf.setAttribute('aria-expanded', String(auf));
         };
@@ -4475,8 +4581,20 @@ function kw(iso) {
 }
 
 
+// Fenster schrumpft beim Schliessen weich zusammen: true = Animation läuft, close() kommt danach nochmals
+function sanftZu(modal) {
+  const ruhig = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (modal.zuGeht || ruhig || !modal.modalEl || !modal.modalEl.isConnected) return false;
+  modal.zuGeht = true;
+  modal.modalEl.addClass('is-zu');
+  if (modal.containerEl) modal.containerEl.addClass('fle-modal-zu');
+  window.setTimeout(() => modal.close(), 170);
+  return true;
+}
+
 // ── Fehlerheft-Übung ── fällige Fälle nochmals lösen (Zwilling, wenn vorhanden), Wiederholung nach 1/3/7 Tagen
 class FehlerheftModal extends obsidian.Modal {
+  close() { if (!sanftZu(this)) super.close(); }
   constructor(app, plugin, modul, fertig) {
     super(app);
     this.plugin = plugin; this.fertig = fertig;
@@ -4515,6 +4633,7 @@ class FehlerheftModal extends obsidian.Modal {
     const fall = ((r.einheit.schritte[e.si] || {}).faelle || []).find((x) => String(x.id) === String(e.fall));
     if (!fall) return null;
     this.original = fall;
+    this.schritte = r.einheit.schritte;
     return fall.zwilling || fall;
   }
 
@@ -4550,6 +4669,7 @@ class FehlerheftModal extends obsidian.Modal {
       det.appendChild(h('summary', null, 'Erklärung von damals nochmals lesen'));
       this.md(det.appendChild(h('div', 'fle-md')), this.original.warum, e.pfad);
     }
+    this.baueKontext(c, e);
     this.md(c.appendChild(h('div', 'fle-md fle-modal-text')), fall.text, e.pfad);
     const eingabe = this.eingabe(c, fall);
     const loes = c.appendChild(h('div', 'fle-loesung'));
@@ -4562,6 +4682,38 @@ class FehlerheftModal extends obsidian.Modal {
       this.ergebnis(loes, fall, e, wert, eingabe.roh);
     };
     this.enter = () => { if (!knopf.disabled) knopf.click(); };
+  }
+
+  // Ausgangslage aus der Einheit (Wunsch 20.11.): Einleitung des Schritts + Fälle, auf die sich dieser bezieht, mit Lösung
+  baueKontext(c, e) {
+    const s = (this.schritte || [])[e.si];
+    if (!s) return;
+    let liste = [];
+    try { liste = bezuege(this.schritte, e.si, this.original) || []; } catch (err) { liste = []; }
+    if (!s.einleitung && !liste.length) return;
+    const ref = c.appendChild(h('div', 'fle-bezug'));
+    if (s.einleitung) {
+      ref.appendChild(h('div', 'fle-bezug-titel', 'Ausgangslage'));
+      this.md(ref.appendChild(h('div', 'fle-md')), s.einleitung, e.pfad);
+    }
+    for (const b of liste) {
+      const bs = this.schritte[b.si];
+      if (!b.fall) {
+        if (b.si === e.si) continue;
+        ref.appendChild(h('div', 'fle-bezug-titel', `Aus ${bs.titel}`));
+        this.md(ref.appendChild(h('div', 'fle-md')), [bs.einleitung, bs.text].filter(Boolean).join('\n\n'), e.pfad);
+        continue;
+      }
+      ref.appendChild(h('div', 'fle-bezug-titel', `Fall ${b.fall.id})`));
+      this.md(ref.appendChild(h('div', 'fle-md')), b.fall.text, e.pfad);
+      if (Array.isArray(b.fall.loesung) && b.fall.loesung.length) {
+        const tab = ref.appendChild(h('table', 'fle-bezug-loesung'));
+        for (const [soll, haben, betrag] of b.fall.loesung) {
+          const tr = tab.appendChild(h('tr'));
+          tr.appendChild(h('td', '', soll)); tr.appendChild(h('td', '', haben)); tr.appendChild(h('td', 'fle-zahl', betrag == null ? '' : Number(betrag).toLocaleString('de-CH')));
+        }
+      }
+    }
   }
 
   // Eingabefeld je nach Fall-Art; wert() = 0…1 oder null (Text: selbst bewerten)
@@ -4675,6 +4827,7 @@ class FehlerheftModal extends obsidian.Modal {
 
 // ── Formel-Puzzle ── Zähler und Nenner der Kennzahlen aus Bausteinen setzen, Wiederholung nach 1/3/7/21 Tagen
 class FormelModal extends obsidian.Modal {
+  close() { if (!sanftZu(this)) super.close(); }
   constructor(app, plugin, erlaubt, fertig) {
     super(app);
     this.plugin = plugin; this.fertig = fertig;

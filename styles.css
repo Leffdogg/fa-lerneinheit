@@ -1388,3 +1388,198 @@
 .fle-formel .fle-funken { left: 50%; }
 @media (prefers-reduced-motion: reduce) { .fle-formel-platz.is-rast, .fle-formel.is-richtig, .fle-formel.is-richtig .fle-formel-koerper, .fle-formel.is-falsch .fle-formel-koerper { animation: none !important; } }
 
+
+/* ── App-Gefühl Lernzentrale (20.11.2026) ── */
+/* Reiter in der Leiste gleitet zum neuen Eintrag */
+.flz-nav { position: sticky; }
+.flz-nav-zeiger { position: absolute; z-index: 0; border-radius: 8px; pointer-events: none;
+  background: color-mix(in srgb, var(--flz-ak) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--flz-ak) 22%, transparent); }
+.flz-nav.has-zeiger button.flz-nav-a { position: relative; z-index: 1; }
+.flz-nav.has-zeiger button.flz-nav-a.is-an { background: transparent; }
+.flz button.flz-nav-a { transition: background-color 150ms, color 150ms, transform 120ms var(--flz-aus); }
+.flz button.flz-nav-a:active { transform: scale(.95); }
+
+/* Seitenwechsel: Inhalt wischt aus der Richtung der Leiste herein */
+.flz.is-vor .flz-seite > :not(.flz-nav) { animation: flz-wisch-rechts 460ms var(--flz-aus) backwards; }
+.flz.is-zurueck .flz-seite > :not(.flz-nav) { animation: flz-wisch-links 460ms var(--flz-aus) backwards; }
+.flz.is-vor .flz-seite > :nth-child(3), .flz.is-zurueck .flz-seite > :nth-child(3) { animation-delay: 40ms; }
+.flz.is-vor .flz-seite > :nth-child(n+4), .flz.is-zurueck .flz-seite > :nth-child(n+4) { animation-delay: 80ms; }
+@keyframes flz-wisch-rechts { from { opacity: 0; transform: translateX(36px); } }
+@keyframes flz-wisch-links { from { opacity: 0; transform: translateX(-36px); } }
+
+/* Menüs und Info-Kasten gehen weich auf statt zu springen */
+.flz-menu-box { transform-origin: top right; }
+.flz-info-box { transform-origin: top left; }
+.flz-menu.is-auf .flz-menu-box, .flz-menu:has(:focus-visible) .flz-menu-box,
+.flz-info.is-auf .flz-info-box, .flz-info:focus-visible .flz-info-box { animation: flz-aufgehen 220ms var(--flz-aus) both; }
+@keyframes flz-aufgehen { from { opacity: 0; transform: translateY(-6px) scale(.96); } }
+.flz-menu.is-auf .flz-menu-a { animation: flz-eintrag 260ms var(--flz-aus) both; }
+.flz-menu.is-auf .flz-menu-a:nth-child(2) { animation-delay: 20ms; } .flz-menu.is-auf .flz-menu-a:nth-child(3) { animation-delay: 40ms; }
+.flz-menu.is-auf .flz-menu-a:nth-child(4) { animation-delay: 60ms; } .flz-menu.is-auf .flz-menu-a:nth-child(n+5) { animation-delay: 80ms; }
+@keyframes flz-eintrag { from { opacity: 0; transform: translateX(-6px); } }
+.flz button.flz-btn { transition: color 150ms, border-color 150ms, background-color 150ms, transform 120ms var(--flz-aus); }
+.flz button.flz-btn:active:not(:disabled) { transform: scale(.96); }
+
+/* Abhaken: Kreis füllt sich, Haken zeichnet sich, Titel wird durchgestrichen */
+.flz-bk-rahmen.is-abgehakt { pointer-events: none; }
+.flz .flz-bk-rahmen.is-abgehakt button.flz-haken { border-color: #1baf7a; background: #1baf7a; animation: flz-haken-pop 380ms cubic-bezier(0.34, 1.6, 0.5, 1); }
+.flz .flz-bk-rahmen.is-abgehakt button.flz-haken::after { content: ''; position: absolute; left: 4.5px; top: 1.5px; width: 4px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0;
+  transform: rotate(45deg); animation: flz-haken-zeichnen 260ms 90ms var(--flz-aus) both; }
+.flz-bk-rahmen.is-abgehakt .flz-bk b { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--text-faint) 80%, transparent); color: var(--text-muted); transition: color 200ms; }
+.flz-bk-rahmen.is-abgehakt .flz-bk { border-color: color-mix(in srgb, #1baf7a 45%, var(--flz-rand)); background: color-mix(in srgb, #1baf7a 6%, var(--background-primary)); transition: border-color 200ms, background-color 200ms; }
+@keyframes flz-haken-pop { 0% { transform: scale(.7); } 60% { transform: scale(1.25); } 100% { transform: scale(1); } }
+@keyframes flz-haken-zeichnen { from { clip-path: inset(100% 0 0 0); } to { clip-path: inset(0 0 0 0); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .flz-nav-zeiger { transition: none; }
+}
+
+/* Neuer Schritt springt nach oben: etwas Luft über dem Rahmen */
+.fle-rahmen { scroll-margin-top: 16px; }
+
+/* ── App-Gefühl Runde 2 (20.11.2026) ── */
+/* 1 · Tafel/Kalender: gleitende Fläche, Inhalt blendet ein */
+.flz-seg.has-pille { position: relative; }
+.flz-seg-pille { position: absolute; top: 3px; bottom: 3px; left: 3px; border-radius: 6px; background: var(--background-primary); box-shadow: 0 1px 3px rgba(0,0,0,.12); pointer-events: none; }
+.flz-seg.is-bereit .flz-seg-pille { transition: transform 340ms cubic-bezier(0.34, 1.3, 0.5, 1), width 340ms var(--flz-aus); }
+.flz .flz-seg.has-pille button { position: relative; z-index: 1; transition: color 200ms, transform 120ms var(--flz-aus); }
+.flz .flz-seg.has-pille button[aria-selected="true"] { background: transparent; box-shadow: none; }
+.flz .flz-seg.has-pille button:active { transform: scale(.95); }
+.flz-plan-inhalt.is-neu { animation: flz-einblenden 380ms var(--flz-aus) backwards; }
+@keyframes flz-einblenden { from { opacity: 0; transform: translateY(8px) scale(.99); } }
+/* 4 · Kalender blättern */
+.flz-plan-inhalt.is-vor { animation: flz-wisch-rechts 380ms var(--flz-aus) backwards; }
+.flz-plan-inhalt.is-zurueck { animation: flz-wisch-links 380ms var(--flz-aus) backwards; }
+
+/* 2 · Aufklappen: Einträge gleiten nacheinander herein */
+.flz-sp-rest.is-auf > * { animation: flz-reinfallen 360ms var(--flz-aus) backwards; }
+.flz-sp-rest.is-auf > :nth-child(2) { animation-delay: 45ms; } .flz-sp-rest.is-auf > :nth-child(3) { animation-delay: 90ms; }
+.flz-sp-rest.is-auf > :nth-child(4) { animation-delay: 135ms; } .flz-sp-rest.is-auf > :nth-child(n+5) { animation-delay: 180ms; }
+.flz-erledigt.is-alle .flz-erl-liste li.is-mehr { animation: flz-reinfallen 320ms var(--flz-aus) backwards; }
+.flz-erledigt.is-alle .flz-erl-liste li.is-mehr:nth-child(odd) { animation-delay: 50ms; }
+:is(.flz-sp-zurueck, .flz-sieben-mehr, .flz-sieben-zurueck, .fle-plan-pruefung, .fle-plan-details)[open] > :not(summary) { animation: flz-reinfallen 340ms var(--flz-aus) backwards; }
+:is(.flz-sp-zurueck, .flz-sieben-zurueck)[open] > :not(summary):nth-child(3) { animation-delay: 45ms; }
+:is(.flz-sp-zurueck, .flz-sieben-zurueck)[open] > :not(summary):nth-child(n+4) { animation-delay: 90ms; }
+@keyframes flz-reinfallen { from { opacity: 0; transform: translateY(-8px); } }
+
+/* 3 · Sprungziel leuchtet kurz auf */
+.is-angesprungen { animation: flz-angesprungen 1300ms var(--flz-aus); border-radius: 6px; }
+@keyframes flz-angesprungen {
+  0% { background-color: transparent; box-shadow: 0 0 0 0 transparent; }
+  20% { background-color: color-mix(in srgb, var(--flz-ak) 16%, transparent); box-shadow: 0 0 0 6px color-mix(in srgb, var(--flz-ak) 16%, transparent); }
+  100% { background-color: transparent; box-shadow: 0 0 0 6px transparent; }
+}
+
+/* 5 · Unterlagen-Gruppen klappen weich auf, Pfeil dreht mit Schwung */
+.flz-menu-gruppe > summary::before { transition: transform 260ms cubic-bezier(0.34, 1.5, 0.5, 1); }
+.flz-menu-gruppe[open] > :not(summary) { animation: flz-reinfallen 280ms var(--flz-aus) backwards; }
+.flz-menu-gruppe[open] > :not(summary):nth-child(3) { animation-delay: 25ms; }
+.flz-menu-gruppe[open] > :not(summary):nth-child(4) { animation-delay: 50ms; }
+.flz-menu-gruppe[open] > :not(summary):nth-child(n+5) { animation-delay: 75ms; }
+
+/* ── Mehr Stellen mit Bewegung (Wunsch 20.11.2026) ── */
+/* 1 · Etappe: Kreise ploppen nacheinander auf, die gestrichelte Linie zieht sich von links */
+.flz-schritte::before { animation: flz-strich 900ms var(--flz-aus) 100ms backwards; }
+@keyframes flz-strich { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+.flz-schritt .flz-knoten { animation: flz-knoten-rein 480ms cubic-bezier(0.34, 1.5, 0.5, 1) calc(150ms + var(--i, 0) * 90ms) backwards; }
+.flz-schritt.is-jetzt .flz-knoten { animation: flz-knoten-rein 480ms cubic-bezier(0.34, 1.5, 0.5, 1) calc(150ms + var(--i, 0) * 90ms) backwards, flz-puls 2.2s ease-in-out 1s infinite; }
+.flz-schritt .flz-s-modul { animation: flz-zieltxt 400ms var(--flz-aus) calc(250ms + var(--i, 0) * 90ms) backwards; }
+@keyframes flz-knoten-rein { from { opacity: 0; transform: scale(.3); } }
+
+/* 2 · Lernzeit-Ring: die graue Spur zeichnet sich einmal rundherum, dann laufen die Stücke */
+.flz-r-spur { stroke-dasharray: 403; animation: flz-spur 800ms var(--flz-aus) backwards; }
+@keyframes flz-spur { from { stroke-dashoffset: 403; } to { stroke-dashoffset: 0; } }
+.flz-ring-flaeche { animation: flz-ring-rein 600ms cubic-bezier(0.34, 1.3, 0.5, 1) backwards; }
+@keyframes flz-ring-rein { from { opacity: 0; transform: scale(.85) rotate(-20deg); } }
+
+/* 3 · Wochen-Säulen wachsen erst, wenn die Woche ins Bild kommt (vorher warten sie flach) */
+.flz-rein:not(.is-da) .flz-saeule, .flz-rein:not(.is-da) .flz-vor { animation-play-state: paused; }
+.flz-vor { transform-box: fill-box; transform-origin: 50% 100%; animation: flz-wachsen 650ms var(--flz-aus) 100ms backwards; }
+.flz-saeule { animation-timing-function: cubic-bezier(0.34, 1.4, 0.5, 1); }
+
+/* 4 · Kalender: heute leuchtet kurz auf, Tage heben sich beim Drüberfahren */
+.flz-kz { transition: transform 180ms var(--flz-aus), box-shadow 180ms, background-color 150ms; }
+.flz-kz:hover { transform: translateY(-3px); box-shadow: 0 8px 18px -10px rgba(0,0,0,.35); z-index: 2; border-radius: 8px; }
+.flz-kz.is-heute { animation: flz-heute-glanz 1400ms var(--flz-aus) 300ms backwards; }
+@keyframes flz-heute-glanz {
+  0% { box-shadow: inset 0 0 0 0 transparent; }
+  25% { box-shadow: inset 0 0 0 2px var(--flz-ak), 0 0 0 4px color-mix(in srgb, var(--flz-ak) 25%, transparent); }
+  100% { box-shadow: inset 0 0 0 0 transparent; }
+}
+
+/* 5 · Themen-Balken: füllen sich Zeile für Zeile, der Soll-Strich gleitet an seinen Platz, der Übersichtsbalken wächst */
+.fle-plan-fuell { transition-duration: 1.1s; }
+.fle-plan tbody tr:nth-child(2) .fle-plan-fuell { transition-delay: 60ms; } .fle-plan tbody tr:nth-child(3) .fle-plan-fuell { transition-delay: 120ms; }
+.fle-plan tbody tr:nth-child(4) .fle-plan-fuell { transition-delay: 180ms; } .fle-plan tbody tr:nth-child(5) .fle-plan-fuell { transition-delay: 240ms; }
+.fle-plan tbody tr:nth-child(6) .fle-plan-fuell { transition-delay: 300ms; } .fle-plan tbody tr:nth-child(n+7) .fle-plan-fuell { transition-delay: 360ms; }
+.fle-plan-marke { animation: flz-marke 900ms cubic-bezier(0.34, 1.3, 0.5, 1) 400ms backwards; }
+@keyframes flz-marke { from { left: 0; opacity: 0; } }
+.fle-plan-balken span { transform-origin: left; animation: flz-linie 700ms var(--flz-aus) backwards; }
+.fle-plan-balken span:nth-child(2) { animation-delay: 120ms; } .fle-plan-balken span:nth-child(3) { animation-delay: 240ms; }
+.fle-plan-balken span:nth-child(n+4) { animation-delay: 360ms; }
+
+/* 6 · Fehlerheft / Formel-Puzzle: fällige Zahl wippt kurz */
+.flz-trainer-zahl { display: inline-block; animation: flz-wippen 900ms ease-in-out 900ms 2 backwards; }
+@keyframes flz-wippen { 0%, 100% { transform: none; } 20% { transform: rotate(-12deg) scale(1.15); } 40% { transform: rotate(10deg) scale(1.15); } 60% { transform: rotate(-6deg); } 80% { transform: rotate(3deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .flz-schritte::before, .flz-knoten, .flz-r-spur, .flz-ring-flaeche, .flz-vor, .flz-kz, .fle-plan-marke, .fle-plan-balken span, .flz-trainer-zahl { animation: none !important; }
+}
+
+/* ── Runde 4: noch mehr Stellen (20.11.2026) ── */
+/* 1 · Begrüssung Wort für Wort, Flamme flackert */
+.flz-wort { display: inline-block; animation: flz-wort 520ms var(--flz-aus) calc(60ms + var(--i, 0) * 110ms) backwards; }
+@keyframes flz-wort { from { opacity: 0; transform: translateY(14px) rotate(3deg); filter: blur(4px); } }
+.flz-chip:not(.is-aus) > svg { transform-origin: 50% 90%; animation: flz-flackern 2.4s ease-in-out infinite; }
+@keyframes flz-flackern { 0%, 100% { transform: scale(1) rotate(0); } 25% { transform: scale(1.08, .95) rotate(-4deg); } 50% { transform: scale(.96, 1.06) rotate(3deg); } 75% { transform: scale(1.05) rotate(-2deg); } }
+
+/* 2 · Starten-Knopf: Lichtschimmer alle paar Sekunden */
+.flz-jetzt .flz-btn.is-cta { position: relative; overflow: hidden; }
+.flz-jetzt .flz-btn.is-cta::after { content: ''; position: absolute; top: 0; bottom: 0; left: -60%; width: 40%; pointer-events: none;
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,.45), transparent); transform: skewX(-18deg); animation: flz-schimmer 4.5s ease-in-out 1.5s infinite; }
+@keyframes flz-schimmer { 0% { left: -60%; } 22%, 100% { left: 130%; } }
+
+/* 3 · Hover-Kärtchen der Etappe springen auf */
+.flz-s-pop { scale: .9; transform-origin: 50% 0; transition: opacity 160ms, transform 160ms, scale 300ms cubic-bezier(0.34, 1.5, 0.5, 1); }
+.flz-schritt:hover .flz-s-pop, .flz-schritt:focus-within .flz-s-pop { scale: 1; }
+
+/* 4 · Modulkarten kippen zur Maus */
+.flz button.flz-mk.is-kipp { transform: perspective(700px) rotateX(var(--rx, 0)) rotateY(var(--ry, 0)) translateY(-4px); transition: transform 80ms linear, box-shadow .25s; }
+
+/* 5 · Die drei grossen Zahlen: Kacheln ploppen nacheinander auf, Zahl rastet am Ende ein */
+.fle-plan-kachel { animation: flz-hochfedern-klein 520ms cubic-bezier(0.34, 1.4, 0.5, 1) backwards; }
+.fle-plan-kachel:nth-child(2) { animation-delay: 90ms; } .fle-plan-kachel:nth-child(3) { animation-delay: 180ms; }
+@keyframes flz-hochfedern-klein { from { opacity: 0; transform: translateY(16px) scale(.94); } }
+.fle-plan-zahl { display: inline-block; transform-origin: left bottom; animation: flz-einrasten 420ms cubic-bezier(0.34, 1.6, 0.5, 1) 950ms; }
+@keyframes flz-einrasten { 40% { transform: scale(1.1); } 100% { transform: none; } }
+
+/* 6 · Die nächsten 7 Tage kommen von links herein */
+.flz-sieben > .flz-sieben-gitter > * { animation: flz-von-links 460ms var(--flz-aus) backwards; }
+.flz-sieben > .flz-sieben-gitter > :nth-child(2) { animation-delay: 70ms; } .flz-sieben > .flz-sieben-gitter > :nth-child(3) { animation-delay: 140ms; }
+.flz-sieben > .flz-sieben-gitter > :nth-child(4) { animation-delay: 210ms; } .flz-sieben > .flz-sieben-gitter > :nth-child(5) { animation-delay: 280ms; }
+@keyframes flz-von-links { from { opacity: 0; transform: translateX(-28px); } }
+
+/* 7 · Lerneinheit: Schritte beim Öffnen nacheinander, Pfeile schieben beim Drüberfahren */
+.fle-liste.is-erstmals > li { animation: flz-von-links 420ms var(--flz-aus) backwards; }
+.fle-liste.is-erstmals > li:nth-child(2) { animation-delay: 50ms; } .fle-liste.is-erstmals > li:nth-child(3) { animation-delay: 100ms; }
+.fle-liste.is-erstmals > li:nth-child(4) { animation-delay: 150ms; } .fle-liste.is-erstmals > li:nth-child(5) { animation-delay: 200ms; }
+.fle-liste.is-erstmals > li:nth-child(6) { animation-delay: 250ms; } .fle-liste.is-erstmals > li:nth-child(n+7) { animation-delay: 300ms; }
+.fle-pfeil { display: inline-block; transition: transform 220ms cubic-bezier(0.34, 1.6, 0.5, 1); }
+.fle-btn-weiter:hover .fle-pfeil { transform: translateX(4px); }
+.fle-btn-zurueck:hover .fle-pfeil { transform: translateX(-4px); }
+
+/* 8 · Fehlerheft- und Puzzle-Fenster springen auf und schrumpfen beim Schliessen */
+.modal.fle-modal { animation: flz-fenster-auf 360ms cubic-bezier(0.34, 1.35, 0.5, 1); }
+@keyframes flz-fenster-auf { from { opacity: 0; transform: scale(.88) translateY(12px); } }
+.modal.fle-modal.is-zu { animation: flz-fenster-zu 170ms ease-in forwards; }
+@keyframes flz-fenster-zu { to { opacity: 0; transform: scale(.92) translateY(6px); } }
+.fle-modal-zu .modal-bg { transition: opacity 170ms; opacity: 0 !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .flz-wort, .flz-chip > svg, .flz-jetzt .flz-btn.is-cta::after, .fle-plan-kachel, .fle-plan-zahl, .flz-sieben-gitter > *, .fle-liste > li, .modal.fle-modal { animation: none !important; }
+  .flz button.flz-mk.is-kipp { transform: none; }
+}
+/* Obsidians eigene Fenster-Animation (anim-modals) ist spezifischer → stärker ansetzen */
+body:not(.is-phone) .modal-container .modal.fle-modal { animation: flz-fenster-auf 360ms cubic-bezier(0.34, 1.35, 0.5, 1); }
+body:not(.is-phone) .modal-container .modal.fle-modal.is-zu { animation: flz-fenster-zu 170ms ease-in forwards; }
+@media (prefers-reduced-motion: reduce) { body:not(.is-phone) .modal-container .modal.fle-modal { animation: none; } }
